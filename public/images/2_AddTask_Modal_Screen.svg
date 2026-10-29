@@ -1,0 +1,103 @@
+<svg width="1440" height="960" viewBox="0 0 1440 960" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap');
+      text { font-family: 'Plus Jakarta Sans', Inter, -apple-system, sans-serif; }
+    </style>
+  </defs>
+
+  <!-- Dimmed Overlay -->
+  <rect width="1440" height="960" fill="#0F172A" fill-opacity="0.55"/>
+
+  <!-- Modal Dialog -->
+  <g transform="translate(430, 95)">
+    <rect width="580" height="770" rx="20" fill="#FFFFFF"/>
+    <rect x="0.5" y="0.5" width="579" height="769" rx="19.5" stroke="#E2E8F0"/>
+
+    <!-- Header -->
+    <text x="36" y="48" fill="#0F172A" font-size="22" font-weight="800">Add Academic Task</text>
+    <text x="36" y="70" fill="#64748B" font-size="13">Step 2: Enter task details &amp; available study time</text>
+
+    <!-- Close button -->
+    <circle cx="536" cy="46" r="16" fill="#F1F5F9"/>
+    <path d="M530 40L542 52M542 40L530 52" stroke="#64748B" stroke-width="2" stroke-linecap="round"/>
+
+    <!-- Input 1: Task Title & Description -->
+    <g transform="translate(36, 96)">
+      <text x="0" y="0" fill="#0F172A" font-size="13" font-weight="700">Task Title &amp; Description</text>
+      <rect y="10" width="508" height="48" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+      <text x="16" y="40" fill="#0F172A" font-size="14">OOP Java Assignment - Build Class Structures</text>
+    </g>
+
+    <!-- Input 2: Available Study Time & Deadline -->
+    <g transform="translate(36, 180)">
+      <g>
+        <text x="0" y="0" fill="#0F172A" font-size="13" font-weight="700">Available Study Time</text>
+        <rect y="10" width="244" height="48" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+        <text x="16" y="40" fill="#0F172A" font-size="14">⏱ 3 Hours</text>
+      </g>
+      <g transform="translate(264, 0)">
+        <text x="0" y="0" fill="#0F172A" font-size="13" font-weight="700">Deadline</text>
+        <rect y="10" width="244" height="48" rx="10" fill="#F8FAFC" stroke="#CBD5E1"/>
+        <text x="16" y="40" fill="#0F172A" font-size="14">📅 Oct 29, 2026</text>
+      </g>
+    </g>
+
+    <!-- CONTINUOUS AI PIPELINE BOX (Google AI Studio + Backend + Gemini + GPT) -->
+    <g transform="translate(36, 268)">
+      <rect width="508" height="370" rx="14" fill="#F0FDFA" stroke="#99F6E4"/>
+
+      <!-- Badge -->
+      <rect x="20" y="16" width="260" height="26" rx="13" fill="#CCFBF1"/>
+      <text x="32" y="33" fill="#0F766E" font-size="11" font-weight="700">✦ Continuous AI Pipeline (Steps 3, 4, 5)</text>
+
+      <!-- Step 3: Google AI Studio & Gemini Task Classification -->
+      <g transform="translate(20, 58)">
+        <circle cx="10" cy="12" r="10" fill="#0D9488"/>
+        <text x="8" y="16" fill="#FFFFFF" font-size="11" font-weight="700">3</text>
+        <text x="28" y="12" fill="#0F172A" font-size="12" font-weight="700">Analyze Task (Google AI Studio / Gemini):</text>
+        <rect x="300" y="0" width="96" height="24" rx="6" fill="#EDE9FE"/>
+        <text x="312" y="16" fill="#6D28D9" font-size="11" font-weight="700">Programming</text>
+        <text x="28" y="32" fill="#64748B" font-size="11">Gemini NLP accurately parsed Java, OOP, and coding scope.</text>
+      </g>
+
+      <!-- Step 4: Backend Deterministic Priority Rules -->
+      <g transform="translate(20, 114)">
+        <circle cx="10" cy="12" r="10" fill="#F59E0B"/>
+        <text x="8" y="16" fill="#FFFFFF" font-size="11" font-weight="700">4</text>
+        <text x="28" y="12" fill="#0F172A" font-size="12" font-weight="700">Calculate Priority (Backend Rules):</text>
+        <rect x="270" y="0" width="84" height="24" rx="6" fill="#FEE2E2"/>
+        <text x="280" y="16" fill="#DC2626" font-size="11" font-weight="700">High (92%)</text>
+        <text x="28" y="32" fill="#64748B" font-size="11">Rule formula: (Due in 2 days) × (3h effort) = Urgent ranking.</text>
+      </g>
+
+      <!-- Step 5: Gemini & GPT Study Plan Generation -->
+      <g transform="translate(20, 170)">
+        <circle cx="10" cy="12" r="10" fill="#3B82F6"/>
+        <text x="8" y="16" fill="#FFFFFF" font-size="11" font-weight="700">5</text>
+        <text x="28" y="12" fill="#0F172A" font-size="12" font-weight="700">Generate Plan (Gemini + GPT Copilot):</text>
+        
+        <g transform="translate(28, 20)">
+          <text x="0" y="14" fill="#0F172A" font-size="11">• Subtask 1: Review assignment requirements &amp; OOP architecture</text>
+          <text x="0" y="30" fill="#0F172A" font-size="11">• Subtask 2: Design class structure &amp; implement core methods</text>
+          <text x="0" y="46" fill="#0F172A" font-size="11">• Subtask 3: Run unit tests, debug, and submit report</text>
+        </g>
+      </g>
+
+      <!-- Time Slot Match -->
+      <rect x="20" y="270" width="468" height="42" rx="8" fill="#FFFFFF" stroke="#CCFBF1"/>
+      <text x="32" y="296" fill="#0D9488" font-size="12" font-weight="700">📅 Scheduled Slot: Mon, Oct 27 at 19:00 - 20:00 (1h Evening Focus)</text>
+
+      <text x="20" y="342" fill="#64748B" font-size="11">Seamlessly unified: You do not need to trigger AI tools separately.</text>
+    </g>
+
+    <!-- Modal Actions -->
+    <g transform="translate(36, 674)">
+      <rect width="140" height="50" rx="12" fill="#F1F5F9"/>
+      <text x="46" y="31" fill="#64748B" font-size="14" font-weight="700">Cancel</text>
+
+      <rect x="156" width="352" height="50" rx="12" fill="#0D9488"/>
+      <text x="225" y="31" fill="#FFFFFF" font-size="14" font-weight="700">Confirm &amp; Slot into Plan ✨</text>
+    </g>
+  </g>
+</svg>
