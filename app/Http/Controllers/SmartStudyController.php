@@ -1255,9 +1255,16 @@ PANDUAN RESPONS:
         $reply = null;
         $source = 'local';
 
-        // Try Gemini API (Verified active models for key: gemini-3.5-flash, gemini-3.5-flash-lite)
+        // Try Gemini API (Prioritize verified active models with high quota: gemini-3.1-flash-lite-preview, gemini-3-flash-preview)
         if (!empty($geminiKey)) {
-            $models = ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash'];
+            $models = [
+                'gemini-3.1-flash-lite-preview',
+                'gemini-3-flash-preview',
+                'gemini-3.1-flash-lite',
+                'gemini-3.5-flash-lite',
+                'gemini-3.5-flash',
+                'gemini-3.8-flash'
+            ];
             foreach ($models as $modelName) {
                 $url = "https://generativelanguage.googleapis.com/v1beta/models/{$modelName}:generateContent?key=" . $geminiKey;
                 $payload = [
@@ -1282,7 +1289,7 @@ PANDUAN RESPONS:
                 curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
                 curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
                 curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 20);
 
                 $responseBody = curl_exec($ch);
                 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -1292,7 +1299,7 @@ PANDUAN RESPONS:
                     $json = json_decode($responseBody, true);
                     if (isset($json['candidates'][0]['content']['parts'][0]['text'])) {
                         $reply = trim($json['candidates'][0]['content']['parts'][0]['text']);
-                        $source = 'gemini';
+                        $source = 'gemini (' . $modelName . ')';
                         break;
                     }
                 }
@@ -1351,8 +1358,36 @@ PANDUAN RESPONS:
                 "Ada baris atau konsep tertentu yang ingin kamu tanyakan lebih dalam? 😊";
         }
 
+        // Academic Question: Binary vs Multiclass Classification / Cybersecurity & Machine Learning
+        if ((str_contains($m, 'binary') && str_contains($m, 'multiclass')) || (str_contains($m, 'klasifikasi') && (str_contains($m, 'ancaman') || str_contains($m, 'siber') || str_contains($m, 'cyber') || str_contains($m, 'security')))) {
+            return "Halo! 🛡️ Dalam deteksi ancaman keamanan siber (*cybersecurity threat detection*), berikut adalah **perbedaan mendasar antara Klasifikasi Binary vs Multiclass**:\n\n" .
+                "### 1. Klasifikasi Binary (Binary Classification)\n" .
+                "• **Jumlah Output:** Tepat 2 kelas (*0 atau 1* / *Normal vs Malicious*).\n" .
+                "• **Tujuan Utama:** Menjawab pertanyaan: *\"Apakah paket data / file ini berbahaya atau aman?\"*\n" .
+                "• **Penerapan Siber:**\n" .
+                "  - Filter Spam Email (*Spam vs Bukan Spam*).\n" .
+                "  - Deteksi Malware awal (*Benign vs Malicious*).\n" .
+                "  - *Network Intrusion Detection* (IDS) untuk menyaring anomali kasar pada *traffic* jaringan.\n" .
+                "• **Kelebihan:** Sangat cepat secara komputasi (*low latency*), efisien untuk throughput jaringan tinggi (*line-rate packet filtering*), dan akurasi tinggi untuk deteksi anomali biner.\n" .
+                "• **Kekurangan:** Tidak memberikan informasi detail mengenai **spesifikasi jenis ancaman** (hanya mendeteksi *ada* serangan, tapi tidak membedakan apakah itu DDoS, Trojan, atau SQL Injection).\n\n" .
+                "### 2. Klasifikasi Multiclass (Multiclass Classification)\n" .
+                "• **Jumlah Output:** Tiga kelas atau lebih (*K-Classes* spesifik jenis serangan).\n" .
+                "• **Tujuan Utama:** Menjawab pertanyaan: *\"Jika ini serangan, jenis ancaman spesifik apa ini?\"*\n" .
+                "• **Penerapan Siber:**\n" .
+                "  - Analisis Taksonomi Malware (*Ransomware, Spyware, Trojan, Rootkit, Adware*).\n" .
+                "  - Klasifikasi Serangan Jaringan SIEM (*DDoS, Port Scan, Brute Force, Cross-Site Scripting, SQL Injection*).\n" .
+                "• **Kelebihan:** Menghasilkan *actionable intelligence* yang sangat berharga bagi tim SOC (*Security Operations Center*) untuk menerapkan respon mitigasi yang presisi dan spesifik.\n" .
+                "• **Kekurangan:** Membutuhkan data latih yang jauh lebih besar dan seimbang (*imbalanced dataset handling*), serta beban komputasi yang lebih tinggi dibanding binary.\n\n" .
+                "| Aspek Perbandingan | Binary Classification | Multiclass Classification |\n" .
+                "|---|---|---|\n" .
+                "| **Jumlah Kelas Output** | Tepat 2 (Normal vs Serangan) | > 2 Kelas (Kategori spesifik) |\n" .
+                "| **Kecepatan Deteksi** | Sangat Cepat (First-line defense) | Komprehensif & Analitis |\n" .
+                "| **Informasi Respons** | Hanya tahu ada indikasi serangan | Tahu pasti jenis vektor serangannya |\n\n" .
+                "Ada studi kasus atau algoritma tertentu (seperti Random Forest, SVM, atau XGBoost) yang ingin kamu bahas lebih lanjut? 😊";
+        }
+
         // Academic Question: OOP / Java / Coding
-        if (str_contains($m, 'oop') || str_contains($m, 'java') || str_contains($m, 'class') || str_contains($m, 'coding') || str_contains($m, 'program')) {
+        if (!str_contains($m, 'multiclass') && !str_contains($m, 'klasifikasi') && (str_contains($m, 'oop') || str_contains($m, 'java') || preg_match('/\b(class|objek|object|enkapsulasi|inheritance)\b/i', $message) || (str_contains($m, 'coding') && !str_contains($m, 'soal')))) {
             return "Halo! 💻 Mari kita bahas konsep **OOP (Object-Oriented Programming)**:\n\n" .
                 "OOP didasarkan pada 4 pilar utama:\n" .
                 "1. **Encapsulation:** Membungkus data (atribut) dan method dalam satu unit class serta melindunginya dengan *access modifier* (`private`, `public`).\n" .
