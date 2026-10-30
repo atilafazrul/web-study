@@ -861,11 +861,21 @@ class SmartStudyController extends Controller
      */
     public function processAIGenerator(Request $request)
     {
+<<<<<<< HEAD
         $validated = $request->validate([
             'title' => 'nullable|string|max:255',
             'mode' => 'required|string|in:quiz,flashcards,summary',
             'presentation_file' => 'nullable|file|max:20480', // up to 20MB
             'preset_topic' => 'nullable|string',
+=======
+        @set_time_limit(180);
+
+        $validated = $request->validate([
+            'title' => 'nullable|string|max:255',
+            'mode' => 'required|string|in:quiz,flashcards,summary',
+            'presentation_file' => 'nullable|file|max:51200', // up to 50MB
+            'preset_topic' => 'nullable|string'
+>>>>>>> 1d63189 (Fix: expand php upload limit to 64MB, upgrade quiz generation to exactly 10 questions per upload)
         ]);
 
         $mode = $validated['mode'] ?? 'quiz';
@@ -883,7 +893,11 @@ class SmartStudyController extends Controller
             // Derive clean, distinct presentation title
             $cleanTitle = pathinfo($filename, PATHINFO_FILENAME);
             if (preg_match('/IF640[-_\s]*W0?(\d+)[-_\s]*(.+?)(?:_odd\d+|\s*\(\d+\))?$/i', $cleanTitle, $m)) {
+<<<<<<< HEAD
                 $cleanTitle = 'IF640-W'.sprintf('%02d', (int) $m[1]).': '.ucwords(str_replace(['_', '-'], ' ', trim($m[2])));
+=======
+                $cleanTitle = 'IF640-W' . sprintf('%02d', (int)$m[1]) . ': ' . ucwords(str_replace(['_', '-'], ' ', trim($m[2])));
+>>>>>>> 1d63189 (Fix: expand php upload limit to 64MB, upgrade quiz generation to exactly 10 questions per upload)
             } else {
                 $cleanTitle = preg_replace('/^Materi\s*/i', '', $cleanTitle);
                 $cleanTitle = preg_replace('/_odd\d+/i', '', $cleanTitle);
@@ -914,8 +928,12 @@ class SmartStudyController extends Controller
 
                 $script = app_path('Services/extract_and_generate.py');
                 if (file_exists($script) && file_exists($fullPath)) {
+<<<<<<< HEAD
                     $geminiKey = env('GEMINI_API_KEY', '');
                     $cmd = 'python '.escapeshellarg($script).' '.escapeshellarg($fullPath).' --title '.escapeshellarg($title).' --filename '.escapeshellarg($filename).' --gemini-key '.escapeshellarg($geminiKey);
+=======
+                    $cmd = 'python ' . escapeshellarg($script) . ' ' . escapeshellarg($fullPath) . ' --original-title ' . escapeshellarg($cleanTitle);
+>>>>>>> 1d63189 (Fix: expand php upload limit to 64MB, upgrade quiz generation to exactly 10 questions per upload)
                     $output = shell_exec($cmd);
                     if ($output) {
                         $parsed = json_decode($output, true);
@@ -968,6 +986,7 @@ class SmartStudyController extends Controller
 
             if (empty($generatedData)) {
                 // Rich fallback academic study pack
+<<<<<<< HEAD
                 $generatedData = [
                     'quiz' => [
                         [
@@ -1003,7 +1022,123 @@ class SmartStudyController extends Controller
                             'correct' => 0,
                             'explanation' => 'Slide menyoroti bahwa modularitas yang tinggi mempermudah maintenance dan mempercepat performa eksekusi.',
                         ],
+=======
+                $quizTemplates = [
+                    [
+                        'question' => 'Berdasarkan materi pada ' . $title . ', apa konsep utama yang menjadi landasan pembahasan modul ini?',
+                        'options' => [
+                            'Definisi teoritis, arsitektur modul, dan validasi fungsional sistem',
+                            'Pengabaian dokumentasi dan pengujian sistem operasional',
+                            'Penggunaan pustaka usang tanpa enkripsi transmisi',
+                            'Penghapusan logging dan jejak audit aktivitas'
+                        ],
+                        'correct' => 0,
+                        'explanation' => 'Slide presentasi menekankan pemahaman konsep teoritis dan arsitektur sebagai pondasi utama sebelum implementasi teknis.'
+>>>>>>> 1d63189 (Fix: expand php upload limit to 64MB, upgrade quiz generation to exactly 10 questions per upload)
                     ],
+                    [
+                        'question' => 'Manakah langkah awal yang paling direkomendasikan saat menganalisis topik ' . $title . '?',
+                        'options' => [
+                            'Melakukan deployment langsung ke server produksi tanpa pengujian',
+                            'Mengidentifikasi batasan masalah, struktur variabel, dan diagram relasi antar modul',
+                            'Menghapus dokumentasi teknis yang telah disusun',
+                            'Menonaktifkan pengujian unit test dan validasi input'
+                        ],
+                        'correct' => 1,
+                        'explanation' => 'Mengidentifikasi batasan masalah dan struktur variabel diperlukan agar proses analisis sistematis dan bebas ambiguitas.'
+                    ],
+                    [
+                        'question' => 'Apa keuntungan utama yang dipaparkan dalam slide terkait arsitektur modular pada ' . $title . '?',
+                        'options' => [
+                            'Mempermudah pemeliharaan (maintenance) dan meningkatkan efisiensi eksekusi',
+                            'Meningkatkan kompleksitas sistem tanpa tujuan yang terukur',
+                            'Mengharuskan redundansi kode yang berlebihan antar fungsi',
+                            'Membatasi interoperabilitas modul dengan dependensi luar'
+                        ],
+                        'correct' => 0,
+                        'explanation' => 'Slide menyoroti bahwa modularitas yang tinggi mempermudah maintenance dan mempercepat performa eksekusi.'
+                    ],
+                    [
+                        'question' => 'Bagaimana strategi pengujian (testing) yang direkomendasikan dalam implementasi materi ini?',
+                        'options' => [
+                            'Melakukan pengujian bertahap dari unit modul hingga integrasi menyeluruh',
+                            'Hanya menguji modul saat sistem mengalami crash di lingkungan produksi',
+                            'Menghindari pembuatan skenario uji batas (edge cases)',
+                            'Menyerahkan pengujian sepenuhnya kepada pengguna akhir tanpa verifikasi'
+                        ],
+                        'correct' => 0,
+                        'explanation' => 'Pengujian berjenjang (unit, integration, regression) menjamin kestabilan dan meminimalkan celah bug.'
+                    ],
+                    [
+                        'question' => 'Faktor apa yang paling krusial dalam menjaga konsistensi data pada ekosistem ' . $title . '?',
+                        'options' => [
+                            'Penerapan validasi skema ketat dan kontrol integritas transaksi',
+                            'Membiarkan format input bebas tanpa aturan tipe data',
+                            'Menonaktifkan batasan relasi antar tabel atau entitas',
+                            'Mengurangi frekuensi sinkronisasi status proses'
+                        ],
+                        'correct' => 0,
+                        'explanation' => 'Validasi skema dan aturan integritas mencegah anomali serta memastikan keandalan data jangka panjang.'
+                    ],
+                    [
+                        'question' => 'Dalam evaluasi performa pada ' . $title . ', metrik evaluasi apa yang biasanya menjadi acuan utama?',
+                        'options' => [
+                            'Latency respon, throughput pemrosesan, dan efisiensi konsumsi memori',
+                            'Jumlah baris komentar dalam source code program',
+                            'Warna antarmuka grafis yang digunakan administrator',
+                            'Kecepatan scroll mouse saat membaca laporan'
+                        ],
+                        'correct' => 0,
+                        'explanation' => 'Metrik kuantitatif seperti latency dan throughput merupakan indikator objektif efisiensi sistem.'
+                    ],
+                    [
+                        'question' => 'Apa peran mekanisme penanganan galat (exception & error handling) yang dibahas pada slide?',
+                        'options' => [
+                            'Menjaga ketersediaan layanan dan mencegah penghentian sistem yang tidak terkontrol (fail-safe)',
+                            'Menyembunyikan seluruh notifikasi kesalahan dari administrator sistem',
+                            'Memaksa sistem melakukan restart berulang kali secara otomatis',
+                            'Menghapus data input yang memicu kegagalan pemrosesan'
+                        ],
+                        'correct' => 0,
+                        'explanation' => 'Error handling yang kokoh menjaga fail-safe state dan melindungi integritas seluruh alur sistem.'
+                    ],
+                    [
+                        'question' => 'Mengapa prinsip Least Privilege penting diterapkan dalam konfigurasi akses pada sistem terkait?',
+                        'options' => [
+                            'Untuk membatasi potensi dampak jika salah satu kredensial atau modul terkompromi',
+                            'Agar setiap pengguna harus meminta izin baru setiap 5 menit',
+                            'Untuk menonaktifkan seluruh koneksi jaringan eksternal',
+                            'Mengharuskan otentikasi manual pada setiap baris instruksi CPU'
+                        ],
+                        'correct' => 0,
+                        'explanation' => 'Least Privilege memastikan setiap entitas hanya memiliki hak akses minimum yang mutlak diperlukan.'
+                    ],
+                    [
+                        'question' => 'Bagaimana pendekatan optimasi yang tepat bila modul menghadapi lonjakan beban data (scalability)?',
+                        'options' => [
+                            'Mengimplementasikan caching cerdas, pemrosesan asinkron, dan load balancing',
+                            'Mematikan fungsi logging dan menghapus indeks basis data',
+                            'Menolak seluruh permintaan pengguna baru secara sepihak',
+                            'Mengganti bahasa pemrograman secara total di server produksi'
+                        ],
+                        'correct' => 0,
+                        'explanation' => 'Caching dan arsitektur asinkron memungkinkan sistem menyerap beban tinggi secara elastis dan stabil.'
+                    ],
+                    [
+                        'question' => 'Kesimpulan esensial apa yang dapat ditarik dari keseluruhan materi pembahasan ' . $title . '?',
+                        'options' => [
+                            'Keberhasilan implementasi bertumpu pada perpaduan konsep teoritis yang matang dan praktik terstandarisasi',
+                            'Materi ini hanya teori abstrak tanpa penerapan nyata dalam industri',
+                            'Sistem dapat bekerja optimal tanpa memerlukan pemeliharaan berkala',
+                            'Proses perencanaan arsitektur dapat diabaikan jika waktu rilis mendesak'
+                        ],
+                        'correct' => 0,
+                        'explanation' => 'Sintesis materi menegaskan pentingnya fondasi konsep dan ketaatan pada standar rekayasa yang disiplin.'
+                    ]
+                ];
+
+                $generatedData = [
+                    'quiz' => $quizTemplates,
                     'flashcards' => [
                         [
                             'front' => 'Definisi Inti '.$title,

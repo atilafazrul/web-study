@@ -35,13 +35,19 @@
     totalQuestions: {{ $totalQuestions > 0 ? $totalQuestions : 4 }},
     correctAnswersCount: 0,
     score: 0,
+    totalQuizQuestions: {{ count($currentMaterial->data['quiz'] ?? []) }},
+    correctAnswersCount: 0,
     selectAnswer(qIndex, optIndex, isCorrect) {
         if (this.userAnswers[qIndex] !== undefined) return;
         this.userAnswers[qIndex] = optIndex;
         if (isCorrect) {
             this.correctAnswersCount++;
         }
+<<<<<<< HEAD
         const total = this.totalQuestions > 0 ? this.totalQuestions : 1;
+=======
+        const total = this.totalQuizQuestions > 0 ? this.totalQuizQuestions : 10;
+>>>>>>> 1d63189 (Fix: expand php upload limit to 64MB, upgrade quiz generation to exactly 10 questions per upload)
         this.score = Math.round((this.correctAnswersCount / total) * 100);
     },
     resetQuiz() {
@@ -105,6 +111,35 @@
         }
     }
 }">
+
+    <!-- Notifications -->
+    @if(session('success'))
+    <div class="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center justify-between text-xs font-bold shadow-xs">
+        <div class="flex items-center gap-2">
+            <span>✨</span>
+            <span>{{ session('success') }}</span>
+        </div>
+        <button type="button" @click="$el.parentElement.remove()" class="text-emerald-500 hover:text-emerald-700 font-black cursor-pointer">✕</button>
+    </div>
+    @endif
+
+    @if(session('error') || $errors->any())
+    <div class="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold shadow-xs space-y-1">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 text-rose-900 font-black">
+                <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-600"></i>
+                <span>Gagal Mengunggah atau Memproses Materi:</span>
+            </div>
+            <button type="button" @click="$el.parentElement.remove()" class="text-rose-500 hover:text-rose-700 font-black cursor-pointer">✕</button>
+        </div>
+        @if(session('error'))
+            <p>{{ session('error') }}</p>
+        @endif
+        @foreach($errors->all() as $err)
+            <p>• {{ $err }}</p>
+        @endforeach
+    </div>
+    @endif
 
     <!-- ================= TOP HEADER BANNER (PINK-PURPLE AESTHETIC) ================= -->
     <div class="relative bg-gradient-to-r from-pink-50/95 via-purple-50/75 to-pink-50/85 border border-pink-200/80 rounded-3xl p-6 sm:p-7 flex flex-col md:flex-row md:items-center justify-between gap-6 overflow-hidden shadow-card">
@@ -265,6 +300,7 @@
                 <div class="bg-gradient-to-r from-pink-50 to-purple-50 border border-purple-200 px-4 py-2 rounded-2xl flex items-center gap-2 shadow-xs">
                     <span class="text-xs font-bold text-slate-600">Skor Anda:</span>
                     <span class="text-base font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600" x-text="score + ' / 100'"></span>
+                    <span class="text-[11px] font-bold text-purple-700 bg-purple-100/90 px-2 py-0.5 rounded-lg" x-show="totalQuizQuestions > 0" x-text="'(' + correctAnswersCount + '/' + totalQuizQuestions + ' Benar)'"></span>
                 </div>
 
                 @if($currentMaterial)
@@ -803,7 +839,7 @@
                                 </div>
                                 <div>
                                     <p class="text-xs font-black text-slate-800" x-text="selectedTopic || 'Klik atau tarik file PPT ke sini'"></p>
-                                    <p class="text-[11px] text-slate-400 font-medium mt-0.5">Mendukung format PowerPoint (.pptx) & PDF kuliah hingga 20MB</p>
+                                    <p class="text-[11px] text-slate-400 font-medium mt-0.5">Mendukung format PowerPoint (.pptx) & PDF kuliah hingga 50MB</p>
                                 </div>
                             </div>
                         </div>
