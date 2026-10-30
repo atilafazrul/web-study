@@ -3,7 +3,15 @@ import os
 import json
 import re
 import random
-import urllib.request
+import logging
+import warnings
+
+# Suppress noisy PDF parser warnings
+warnings.filterwarnings('ignore')
+try:
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
+except Exception:
+    pass
 
 if sys.platform == 'win32':
     try:
@@ -58,166 +66,98 @@ def extract_text_from_file(file_path):
             
     return slides_content
 
-def extract_title_and_subject(filename, slides):
-    # 1. Check slide 1 lines
+def extract_title_and_subject(filename, slides, original_title=None):
+    # If user-provided original title is already clean and distinct, prefer it
+    if original_title and len(original_title.strip()) > 3:
+        clean_orig = original_title.strip()
+        if not re.match(r'^upload[_\s]?\d+', clean_orig, re.I):
+            return clean_orig
+
+    # 1. Check slide 1 lines for clear academic course pattern
     if slides and len(slides) > 0:
         lines = slides[0].get('lines', [])
-        course_code = None
-        topic_title = None
+        combined_s1 = ' '.join(lines)
+
+        # Check for "Subject : <Course Code> - <Course Name>" or "Mata Kuliah : <Course Name>"
+        m_subj = re.search(r'(?:Subject|Mata\s*Kuliah)\s*[:]\s*([A-Za-z0-9\s:–-]+?)(?:Date|Tanggal|Time|Waktu|Lecturer|Dosen|\n|$)', combined_s1, re.I)
+        if m_subj:
+            subj_title = m_subj.group(1).strip().replace('–', '-').replace('—', '-')
+            subj_title = re.sub(r'\s*-\s*$', '', subj_title).strip()
+            if len(subj_title) > 3:
+                return subj_title
+
+        # UMN Pattern: e.g. "IF676–Penetration Testing03–Penetration Testing : Planning"
+        for line in lines:
+            m = re.search(r'([A-Z]{2}\d{3})[–-]([A-Za-z\s]+?)(\d{1,2})[–-](.+)', line)
+            if m:
+                code = m.group(1).strip()
+                wk = int(m.group(3))
+                topic = m.group(4).strip()
+                topic = re.split(r'Tony|Marlinda|Overbeek|Dr\.|Dosen|Program|Fakultas', topic, flags=re.I)[0].strip()
+                topic = re.sub(r'^[–-]\s*', '', topic).strip()
+                if topic:
+                    return f"{code}-W{wk:02d}: {topic}"
+
+        # Standard Week Pattern: "03 Penetration Testing : Planning" or "05 The Physics of Malware"
         for line in lines:
             m = re.match(r'^(0\d|\d{1,2})\s+(.+)$', line.strip())
             if m:
                 week_num = int(m.group(1))
                 topic = m.group(2).strip().replace('“', '"').replace('”', '"')
-                return f"IF640-W{week_num:02d}: {topic}"
-            cm = re.search(r'\b([A-Z]{2,4}\s*\d{3,4})\b', line.strip())
-            if cm and not course_code:
-                course_code = cm.group(1).replace(' ', '')
-            if len(line.strip()) > 8 and not re.search(r'universitas|program studi|fakultas', line.strip(), re.I):
-                if not topic_title:
-                    topic_title = line.strip()
+                # Check course code in slide 1
+                m_code = re.search(r'\b([A-Z]{2}\d{3})\b', combined_s1)
+                code_prefix = m_code.group(1) if m_code else "IF640"
+                return f"{code_prefix}-W{week_num:02d}: {topic}"
 
-        if course_code and topic_title:
-            return f"{course_code}: {topic_title}"
-        elif topic_title:
-            return topic_title
+        # Check Course Code + Course Name in Slide 1
+        for line in lines:
+            m_cn = re.match(r'^([A-Z]{2}\d{3})\s*[-–:]\s*([A-Za-z\s]{4,35})$', line.strip())
+            if m_cn:
+                code = m_cn.group(1)
+                cname = m_cn.group(2).strip()
+                # Check if slide 3 or outline has specific chapter name
+                if len(slides) > 2:
+                    s3_text = slides[2].get('text', '')
+                    m_outline = re.search(r'outline.*?(?:1\.\s*|▪\s*)([A-Za-z0-9\s:–-]+)', s3_text, re.I)
+                    if m_outline:
+                        return f"{code}: {cname} - {m_outline.group(1).strip()[:35]}"
+                return f"{code}: {cname}"
 
     # 2. Check filename pattern like Materi IF640-W06-Social Engineering (1).pdf
     base = os.path.splitext(filename)[0]
-    m = re.search(r'IF640[-_\s]*W0?(\d+)[-_\s]*(.+?)(?:_odd\d+|\s*\(\d+\))?$', base, re.IGNORECASE)
-    if m:
-        week_num = int(m.group(1))
-        topic = m.group(2).strip()
-        topic = re.sub(r'[-_]', ' ', topic).strip()
-        return f"IF640-W{week_num:02d}: {topic}"
+    is_temp_upload = bool(re.match(r'^upload[_\s]?\d+', base, re.I))
 
-    # 3. Clean filename fallback
-    if base.startswith('upload_') and slides and len(slides) > 0:
-        for line in slides[0].get('lines', []):
-            if len(line.strip()) > 5 and not re.search(r'universitas|fakultas|prodi', line.strip(), re.I):
-                return line.strip()
+    if not is_temp_upload:
+        m = re.search(r'([A-Z]{2}\d{3})[-_\s]*W0?(\d+)[-_\s]*(.+?)(?:_odd\d+|\s*\(\d+\))?$', base, re.IGNORECASE)
+        if m:
+            code = m.group(1).upper()
+            week_num = int(m.group(2))
+            topic = m.group(3).strip()
+            topic = re.sub(r'[-_]', ' ', topic).strip()
+            return f"{code}-W{week_num:02d}: {topic}"
 
-    clean = re.sub(r'^Materi\s*', '', base, flags=re.IGNORECASE)
-    clean = re.sub(r'_odd\d+', '', clean, flags=re.IGNORECASE)
-    clean = re.sub(r'\s*\(\d+\)$', '', clean)
-    clean = re.sub(r'[-_]', ' ', clean).strip()
-    return clean if clean else filename
+        # Clean course code pattern in filename like CE542-System Administration-MidTerm-2627
+        m_ce = re.search(r'([A-Z]{2}\d{3})[-_\s]+([A-Za-z\s]+?)(?:[-_\s]+(?:MidTerm|UTS|UAS|Final|W\d+|\d{4}))?$', base, re.I)
+        if m_ce:
+            code = m_ce.group(1).upper()
+            topic = m_ce.group(2).strip().replace('_', ' ')
+            return f"{code}: {topic}"
 
-def get_env_gemini_key():
-    env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env')
-    if os.path.exists(env_file):
-        try:
-            with open(env_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if line.startswith('GEMINI_API_KEY='):
-                        val = line.split('=', 1)[1].strip()
-                        return val.strip('"').strip("'")
-        except Exception:
-            pass
-    return os.environ.get('GEMINI_API_KEY', '')
+        clean = re.sub(r'^Materi\s*', '', base, flags=re.IGNORECASE)
+        clean = re.sub(r'_odd\d+', '', clean, flags=re.IGNORECASE)
+        clean = re.sub(r'\s*\(\d+\)$', '', clean)
+        clean = re.sub(r'[-_]', ' ', clean).strip()
+        if clean and len(clean) > 3:
+            return clean
 
-def generate_with_gemini(slides, doc_title, gemini_key, is_refresh_quiz=False):
-    if not gemini_key:
-        return None
-    try:
-        sample_texts = []
-        for s in slides[:40]:
-            lines = [x.strip() for x in s.get('lines', []) if len(x.strip()) > 3]
-            if lines:
-                sample_texts.append(f"[Slide {s['slide_num']}] " + " | ".join(lines[:6]))
-        content_context = "\n".join(sample_texts[:30])
+    # 3. Slide 2 outline fallback
+    if len(slides) > 1:
+        s2_text = slides[1].get('text', '')
+        m_s2 = re.search(r'\b(IF\d{3}|[A-Z]{2}\d{3})\b.*?[-–:]\s*([A-Za-z\s]+)', s2_text)
+        if m_s2:
+            return f"{m_s2.group(1)}: {m_s2.group(2).strip()[:30]}"
 
-        prompt = f"""Kamu adalah Profesor & Dosen Penguji Ujian di universitas terkemuka.
-Berikut adalah teks ringkasan materi slide presentasi kuliah (judul awal: '{doc_title}'):
----
-{content_context}
----
-
-TUGAS UTAMA:
-1. "title": Buat judul materi perkuliahan yang sangat rapi, profesional, dan mencerminkan kode mata kuliah dan topik utama slide jika ada (misal: "AI706: Pengantar Lanskap AI Tools & Penggunaan yang Bertanggung Jawab").
-2. "quiz": Buat 4 hingga 5 soal Kuis Pilihan Ganda (Interactive Quiz) yang SANGAT BERKUALITAS TINGGI, menantang, akademis, dan menguji pemahaman konseptual (Active Recall & Critical Thinking).
-   - JANGAN membuat soal dangkal atau menaruh judul slide/frasa mentah sebagai pilihan jawaban!
-   - Setiap soal wajib memiliki:
-     * "question": Pertanyaan jelas dan kontekstual.
-     * "options": Array berisi tepat 4 pilihan jawaban yang masuk akal dan gramatikal rapi.
-     * "correct": Indeks opsi jawaban yang benar (0, 1, 2, atau 3).
-     * "explanation": Penjelasan akademis mendalam mengapa pilihan itu benar dan mengapa pilihan lain keliru.
-3. "flashcards": Buat 6 Kartu Flashcard 3D (Active Recall) yang menanyakan konsep esensial pada 'front' dan penjabaran definisi/prinsip lengkap pada 'back' dengan 'badge' kategori.
-4. "summary":
-   - "executive_summary": Ringkasan eksekutif padat dan komprehensif.
-   - "key_takeaways": Array 4-6 poin kunci esensial.
-   - "cheat_sheet": Array 4 baris tabel (layer, unit, protocols, hardware).
-   - "exam_tips": Array 3 tips strategis menjawab soal ujian materi ini.
-
-Format Output WAJIB JSON murni tanpa markdown:
-{{
-  "title": "...",
-  "quiz": [
-    {{
-      "question": "...",
-      "options": ["A", "B", "C", "D"],
-      "correct": 0,
-      "explanation": "..."
-    }}
-  ],
-  "flashcards": [
-    {{
-      "front": "...",
-      "back": "...",
-      "badge": "..."
-    }}
-  ],
-  "summary": {{
-    "executive_summary": "...",
-    "key_takeaways": ["..."],
-    "cheat_sheet": [
-      {{"layer": "...", "unit": "...", "protocols": "...", "hardware": "..."}}
-    ],
-    "exam_tips": ["..."]
-  }}
-}}
-"""
-        models = [
-            'gemini-3.1-flash-lite-preview',
-            'gemini-3-flash-preview',
-            'gemini-2.5-flash',
-            'gemini-flash-latest'
-        ]
-        for m in models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={gemini_key}"
-            payload = {
-                'contents': [{'parts': [{'text': prompt}]}],
-                'generationConfig': {
-                    'temperature': 0.7 if is_refresh_quiz else 0.3,
-                    'maxOutputTokens': 3500
-                }
-            }
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode('utf-8'),
-                headers={'Content-Type': 'application/json'}
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=25) as resp:
-                    if resp.status == 200:
-                        raw = json.loads(resp.read().decode('utf-8'))
-                        if 'candidates' in raw and raw['candidates']:
-                            txt = raw['candidates'][0]['content']['parts'][0]['text'].strip()
-                            if txt.startswith('```json'):
-                                txt = txt[7:]
-                            if txt.startswith('```'):
-                                txt = txt[3:]
-                            if txt.endswith('```'):
-                                txt = txt[:-3]
-                            txt = txt.strip()
-                            data = json.loads(txt)
-                            if data.get('quiz') and len(data['quiz']) >= 3:
-                                return data
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return None
+    return "Slide Kuliah Akademik"
 
 def shuffle_quiz_options(quiz_list):
     result = []
@@ -234,10 +174,6 @@ def shuffle_quiz_options(quiz_list):
         })
     return result
 
-<<<<<<< HEAD
-def analyze_and_generate(file_path, slides, gemini_key='', orig_title='', orig_filename='', is_refresh_quiz=False):
-    filename = orig_filename if orig_filename else os.path.basename(file_path)
-=======
 def ensure_10_quiz_items(quiz_list, doc_title, slides=None):
     if not quiz_list:
         quiz_list = []
@@ -361,50 +297,17 @@ def ensure_10_quiz_items(quiz_list, doc_title, slides=None):
 
 def analyze_and_generate(file_path, slides, original_title=None):
     filename = os.path.basename(file_path)
->>>>>>> 1d63189 (Fix: expand php upload limit to 64MB, upgrade quiz generation to exactly 10 questions per upload)
     combined_text = ' '.join([s['text'] for s in slides]).lower()
     total_slides = len(slides) if slides else 20
-    doc_title = orig_title if orig_title and not orig_title.startswith('upload_') else extract_title_and_subject(filename, slides)
+    doc_title = extract_title_and_subject(filename, slides, original_title)
     dt_lower = doc_title.lower()
     fn_lower = filename.lower()
+    ct_lower = combined_text.lower()
     
-    # 0. Try Gemini API first for any presentation (returns world-class custom quiz & flashcards)
-    if not gemini_key:
-        gemini_key = get_env_gemini_key()
-    
-    if gemini_key:
-        gemini_result = generate_with_gemini(slides, doc_title, gemini_key, is_refresh_quiz=is_refresh_quiz)
-        if gemini_result:
-            title_final = gemini_result.get('title') or doc_title
-            # Ensure video structure is present
-            video_data = {
-                'duration': '4:15',
-                'lecturer': 'Dr. Maya AI - Virtual Lecturer',
-                'chapters': [
-                    {'time': '00:00', 'title': f'Pengantar {title_final[:30]}'},
-                    {'time': '01:20', 'title': 'Lanskap & Konsep Utama'},
-                    {'time': '02:45', 'title': 'Etika & Evaluasi Kritis'},
-                    {'time': '03:40', 'title': 'Rangkuman Ujian'}
-                ],
-                'slides': [
-                    {
-                        'slide_num': 1,
-                        'title': title_final,
-                        'subtitle': 'Panduan Belajar Cerdas AI',
-                        'bullet_points': gemini_result.get('summary', {}).get('key_takeaways', ['Pahami konsep inti', 'Evaluasi implementasi'])[:3],
-                        'transcript': f'Halo rekan mahasiswa! Di modul ini kita akan membedah secara mendalam topik {title_final}.'
-                    }
-                ]
-            }
-            return {
-                'title': title_final,
-                'slides_count': total_slides,
-                'summary': gemini_result.get('summary', {}),
-                'quiz': gemini_result.get('quiz', []),
-                'flashcards': gemini_result.get('flashcards', []),
-                'video': video_data
-            }
-    
+    # 0. IF676: Penetration Testing (Week 03: Planning & Scoping)
+    if 'penetration testing' in dt_lower or 'penetration testing' in fn_lower or 'if676' in dt_lower or 'if676' in fn_lower:
+        return generate_pentest_planning_w03(doc_title, total_slides)
+
     # 1. Week 05: Physics of Malware
     if 'w05' in dt_lower or 'physics of malware' in dt_lower or 'w05' in fn_lower or 'physics of malware' in fn_lower:
         return generate_malware_w05(doc_title, total_slides)
@@ -414,7 +317,7 @@ def analyze_and_generate(file_path, slides, original_title=None):
         return generate_unsupervised_w04(doc_title, total_slides)
         
     # 3. Week 03: Supervised Learning & Threat Classification
-    if 'w03' in dt_lower or 'supervised' in dt_lower or 'classify threats' in dt_lower or 'w03' in fn_lower:
+    if 'supervised' in dt_lower or 'classify threats' in dt_lower or 'supervised' in fn_lower or 'classify threats' in fn_lower or ('w03' in dt_lower and 'supervised' in ct_lower):
         return generate_supervised_w03(doc_title, total_slides)
         
     # 4. Week 02: How AI Thinks about Data
@@ -428,12 +331,7 @@ def analyze_and_generate(file_path, slides, original_title=None):
     # 6. Week 06: Social Engineering
     if 'w06' in dt_lower or 'social engineering' in dt_lower or 'w06' in fn_lower or 'social engineering' in fn_lower:
         return generate_social_engineering_w06(doc_title, total_slides)
-        return generate_social_engineering_w06(doc_title, total_slides)
         
-<<<<<<< HEAD
-    # Adaptive extraction for any other presentation
-    return generate_adaptive_data(doc_title, filename, slides, combined_text)
-=======
     # Universal Generator for ANY new / arbitrary course presentation (Gemini AI -> Local Smart NLP)
     return generate_universal_ai_presentation(doc_title, filename, slides, combined_text)
 
@@ -671,7 +569,6 @@ def generate_pentest_planning_w03(doc_title, total_slides):
             ]
         }
     }
->>>>>>> 1d63189 (Fix: expand php upload limit to 64MB, upgrade quiz generation to exactly 10 questions per upload)
 
 # ==============================================================================
 # WEEK 04: PATTERN RECOGNITION ATTACK WITH UNSUPERVISED LEARNING
@@ -1465,11 +1362,8 @@ def generate_social_engineering_w06(doc_title, total_slides):
     }
 
 # ==============================================================================
-# ADAPTIVE GENERATOR FOR ANY ARBITRARY PRESENTATION
+# UNIVERSAL AI & DEEP EXTRACTIVE GENERATOR FOR ANY COURSE PRESENTATION
 # ==============================================================================
-<<<<<<< HEAD
-def generate_adaptive_data(doc_title, filename, slides, combined_text):
-=======
 def get_gemini_api_key():
     key = os.environ.get('GEMINI_API_KEY')
     if key and len(key) > 10:
@@ -1573,55 +1467,82 @@ def generate_with_gemini(doc_title, total_slides, slides):
     return None
 
 def generate_universal_ai_presentation(doc_title, filename, slides, combined_text):
->>>>>>> 1d63189 (Fix: expand php upload limit to 64MB, upgrade quiz generation to exactly 10 questions per upload)
     total_slides = len(slides) if slides else 15
     
-    # Filter out boilerplate lines
-    boilerplate_words = [
-        'learning outcome', 'elo ', 'clo ', 'subclo', 'review', 'outline', 'agenda',
-        'description', 'evaluation', 'assignment', 'tugas', 'references', 'next week',
-        'visi', 'misi', 'daftar pustaka', 'summary', 'assessment', 'marlinda', 'overbeek',
-        'if640', 'ai in cybersecurity'
+    # 1. Attempt Gemini Generative AI (Live multimodal extraction)
+    gemini_data = generate_with_gemini(doc_title, total_slides, slides)
+    if gemini_data and isinstance(gemini_data, dict):
+        if gemini_data.get('quiz') and len(gemini_data['quiz']) >= 3:
+            return gemini_data
+            
+    # 2. Resilient Deep Local Academic NLP Generator
+    return generate_local_academic_pack(doc_title, filename, slides, combined_text)
+
+def generate_local_academic_pack(doc_title, filename, slides, combined_text):
+    total_slides = len(slides) if slides else 15
+    
+    # Administrative & Noise regex filters
+    admin_patterns = [
+        r'study program of', r'program studi', r'faculty of', r'fakultas',
+        r'universitas', r'university', r'mid-term exam', r'final exam',
+        r'ujian tengah', r'ujian akhir', r'academic year', r'tahun akademik',
+        r'subject\s*:', r'mata kuliah\s*:', r'lecturer', r'dosen', r'time\s*:',
+        r'waktu\s*:', r'room\s*:', r'ruang\s*:', r'form\s*:', r'type\s*:',
+        r'exam condition', r'instruction', r'petunjuk', r'rubric', r'assessment',
+        r'rated aspect', r'sub learning outcome', r'sub-clo', r'elo', r'cpl',
+        r'page \d+ of \d+', r'halaman \d+', r'slide \d+', r'jcc-202',
+        r'this document has been approved', r'tcpdf', r'references\s*:',
+        r'daftar pustaka', r'thank you', r'terima kasih', r'good luck',
+        r'semester gasal', r'semester genap', r'odd semester', r'even semester',
+        r'the answers should be', r'allowed to open', r'at your own risk',
+        r'classroom lab', r'screenshot of the command', r'provide these items',
+        r'submit your answer', r'keep the screenshot', r'show that the previous command',
+        r'correct command', r'command is \d+%', r'only correct command'
     ]
     
-    substantive_points = []
-    substantive_topics = []
+    def is_noise(text):
+        t = text.lower()
+        return any(re.search(pat, t) for pat in admin_patterns)
+
+    # Extract clean topics and substantive sentences across slides
+    clean_topics = []
+    clean_statements = []
     
     for s in slides:
         for line in s['lines']:
-            line_str = line.strip()
-            # Clean separators
-            cleaned = line_str
-            if '·' in cleaned:
-                cleaned = cleaned.split('·')[-1].strip()
-            if '—' in cleaned and len(cleaned.split('—')[0]) < 25:
-                cleaned = cleaned.split('—')[-1].strip()
+            cl = line.strip()
+            if len(cl) > 8 and not is_noise(cl):
+                # Check for numbered / bullet topics like "1. User & group management" or "File permission"
+                m_top = re.match(r'^(?:\d+[\.\)]\s*|▪\s*|•\s*|-+\s*)([A-Za-z0-9\s&/_–-]+?)(?::|\(|$)', cl)
+                if m_top:
+                    cand_top = m_top.group(1).strip()
+                    if 4 < len(cand_top) < 45 and not is_noise(cand_top) and cand_top not in clean_topics:
+                        clean_topics.append(cand_top)
                 
-            line_lower = cleaned.lower()
-            if len(cleaned) > 12 and not any(b in line_lower for b in boilerplate_words):
-                if not cleaned.isdigit() and not cleaned.startswith('===') and len(cleaned) < 120:
-                    if cleaned not in substantive_points:
-                        substantive_points.append(cleaned)
-                    if len(cleaned) < 60 and cleaned not in substantive_topics:
-                        substantive_topics.append(cleaned)
+                # Sentences describing technical actions / rules / commands
+                if 20 < len(cl) < 140 and not cl.startswith('==='):
+                    if cl not in clean_statements:
+                        clean_statements.append(cl)
 
-    if len(substantive_points) < 6:
-        substantive_points = [
-            f"Analisis fundamental materi perkuliahan '{doc_title}'",
-            "Identifikasi struktur konseptual, relasi data, dan metodologi perancangan sistem",
-            "Mekanisme operasional dan arsitektur komponen modul",
-            "Proses verifikasi, pengujian performa, dan validasi fungsional",
-            "Studi kasus implementasi dan evaluasi batas operasional",
-            "Strategi optimalisasi sistem dan pemecahan kendala teknis"
+    # Defaults if extraction is sparse
+    if len(clean_topics) < 4:
+        clean_topics = [
+            f"Konsep Fundamental {doc_title[:30]}",
+            "Arsitektur Komponen & Alur Kerja",
+            "Mekanisme Konfigurasi & Implementasi",
+            "Keamanan, Validasi & Pemecahan Masalah",
+            "Evaluasi Performa & Standar Operasional"
         ]
 
-    topic_1 = substantive_topics[0] if len(substantive_topics) > 0 else substantive_points[0][:40]
-    topic_2 = substantive_topics[1] if len(substantive_topics) > 1 else substantive_points[1][:40]
-    topic_3 = substantive_topics[2] if len(substantive_topics) > 2 else substantive_points[2][:40]
-    topic_4 = substantive_topics[3] if len(substantive_topics) > 3 else substantive_points[3][:40]
+    if len(clean_statements) < 5:
+        clean_statements = [
+            f"Penerapan arsitektur terstruktur pada materi '{doc_title}' untuk menjamin efisiensi sistem.",
+            "Pemisahan hak akses dan kontrol parameter untuk meminimalkan risiko anomali operasional.",
+            "Mekanisme otomasi proses untuk mengoptimalkan keandalan layanan secara berkesinambungan.",
+            "Pencatatan log audit dan verifikasi berkala terhadap integritas data sistem.",
+            "Pengujian fungsional modul untuk memastikan skalabilitas dan kepatuhan standar industri."
+        ]
 
-<<<<<<< HEAD
-=======
     # Synthesize authentic academic quiz questions
     quiz_items = []
     
@@ -1671,68 +1592,28 @@ def generate_universal_ai_presentation(doc_title, filename, slides, combined_tex
         })
 
     # Summary
->>>>>>> 1d63189 (Fix: expand php upload limit to 64MB, upgrade quiz generation to exactly 10 questions per upload)
     exec_summary = (
-        f"Materi perkuliahan '{doc_title}' ({total_slides} slide) telah dianalisis dan dirangkum secara mendalam oleh AI. "
-        f"Fokus pembahasan materi meliputi prinsip inti '{topic_1}', arsitektur dan mekanisme kerja '{topic_2}', "
-        f"serta penerapan terapan pada '{topic_3}'. Dokumen ini menyajikan poin-poin kunci esensial, "
-        "tabel referensi cepat, dan panduan belajar terstruktur untuk persiapan ujian dan kuis akademik."
+        f"Materi perkuliahan '{doc_title}' ({total_slides} slide/halaman) telah dianalisis dan dirangkum secara komprehensif. "
+        f"Pembahasan utama berfokus pada '{clean_topics[0]}', mekanisme '{clean_topics[1] if len(clean_topics)>1 else 'operasional'}', "
+        f"serta penerapan terarah pada '{clean_topics[2] if len(clean_topics)>2 else 'pengujian sistem'}'. "
+        "Modul ini menyajikan ringkasan konsep esensial, tabel referensi cepat, kuis interaktif, dan flashcard hafalan aktif "
+        "untuk persiapan ujian dan evaluasi akademik."
     )
 
     takeaways = [
-        f"Fondasi & Definisi Utama: {substantive_points[0]}",
-        f"Arsitektur & Komponen Sistem: {substantive_points[1] if len(substantive_points)>1 else 'Pemisahan tanggung jawab antar modul dan integrasi interface.'}",
-        f"Mekanisme & Alur Operasional: {substantive_points[2] if len(substantive_points)>2 else 'Aliran pemrosesan data terstruktur dari input hingga evaluasi output.'}",
-        f"Karakteristik & Spesifikasi Kunci: {substantive_points[3] if len(substantive_points)>3 else 'Parameter pembatas, asumsi kerja, dan standar operasional.'}",
-        f"Penerapan & Studi Kasus: {substantive_points[4] if len(substantive_points)>4 else 'Implementasi praktis pada lingkungan terapan.'}",
-        f"Evaluasi & Optimasi: {substantive_points[5] if len(substantive_points)>5 else 'Pengukuran metrik efisiensi dan mitigasi kendala operasional.'}"
+        f"Fondasi & Definisi: {clean_statements[0]}",
+        f"Arsitektur & Modul: {clean_statements[1] if len(clean_statements)>1 else clean_statements[0]}",
+        f"Mekanisme Kerja: {clean_statements[2] if len(clean_statements)>2 else clean_statements[0]}",
+        f"Implementasi & Konfigurasi: {clean_statements[3] if len(clean_statements)>3 else clean_statements[0]}",
+        f"Evaluasi & Audit: {clean_statements[4] if len(clean_statements)>4 else clean_statements[0]}"
     ]
 
     cheat_sheet = [
-        {'layer': f'Bab 1: {topic_1[:25]}', 'unit': 'Fondasi Teori', 'protocols': substantive_points[0][:50], 'hardware': 'Prinsip dasar & latar belakang'},
-        {'layer': f'Bab 2: {topic_2[:25]}', 'unit': 'Arsitektur Modul', 'protocols': substantive_points[1][:50] if len(substantive_points)>1 else 'Struktur komponen', 'hardware': 'Mekanisme & interaksi data'},
-        {'layer': f'Bab 3: {topic_3[:25]}', 'unit': 'Operasional', 'protocols': substantive_points[2][:50] if len(substantive_points)>2 else 'Alur kerja runtime', 'hardware': 'Studi kasus & implementasi'},
-        {'layer': f'Bab 4: {topic_4[:25]}', 'unit': 'Evaluasi Teknis', 'protocols': substantive_points[3][:50] if len(substantive_points)>3 else 'Validasi parameter', 'hardware': 'Metrik pengujian & performa'}
+        {'layer': f'Bab 1: {clean_topics[0][:25]}', 'unit': 'Konsep Inti', 'protocols': clean_statements[0][:50], 'hardware': 'Prinsip dasar & spesifikasi'},
+        {'layer': f'Bab 2: {clean_topics[1][:25] if len(clean_topics)>1 else "Modul 2"}', 'unit': 'Mekanisme', 'protocols': clean_statements[1][:50] if len(clean_statements)>1 else 'Alur proses', 'hardware': 'Interaksi komponen'},
+        {'layer': f'Bab 3: {clean_topics[2][:25] if len(clean_topics)>2 else "Modul 3"}', 'unit': 'Implementasi', 'protocols': clean_statements[2][:50] if len(clean_statements)>2 else 'Konfigurasi terapan', 'hardware': 'Penerapan pada lingkungan kerja'},
+        {'layer': f'Bab 4: {clean_topics[3][:25] if len(clean_topics)>3 else "Modul 4"}', 'unit': 'Evaluasi', 'protocols': clean_statements[3][:50] if len(clean_statements)>3 else 'Validasi sistem', 'hardware': 'Metrik efisiensi & audit'}
     ]
-
-    adaptive_quiz_pool = [
-        {
-            'question': f'Berdasarkan pemaparan dalam materi "{doc_title}", apa prinsip esensial yang mendasari {topic_1}?',
-            'options': [
-                substantive_points[0][:90],
-                'Pengabaian dokumentasi dan pengujian sistem berkala',
-                'Penyimpanan data unencrypted pada jaringan publik tanpa proteksi',
-                'Penggunaan dependensi eksternal tanpa validasi parameter'
-            ],
-            'correct': 0,
-            'explanation': f'Slide presentasi menekankan bahwa {substantive_points[0][:80]} merupakan fondasi konseptual utama dalam materi ini.'
-        },
-        {
-            'question': f'Pada bagian pembahasan {topic_2}, manakah pernyataan yang paling akurat mengenai mekanisme operasionalnya?',
-            'options': [
-                'Komponen dirancang untuk memperlambat alur eksekusi komputasi',
-                substantive_points[1][:90] if len(substantive_points)>1 else 'Pemisahan modul terstruktur untuk memastikan skalabilitas dan keandalan sistem',
-                'Sistem tidak mendukung pemrosesan data secara multi-user',
-                'Seluruh konfigurasi wajib di-hardcode tanpa file environment'
-            ],
-            'correct': 1,
-            'explanation': 'Slide menggarisbawahi bahwa struktur arsitektur modular menjamin interoperabilitas serta efisiensi eksekusi antar modul.'
-        },
-        {
-            'question': f'Apa tujuan utama dari implementasi metodologi yang dipaparkan pada {topic_3}?',
-            'options': [
-                'Menghapus integritas data audit pengguna',
-                'Membatasi fungsionalitas aplikasi hanya pada satu lingkungan lokal',
-                substantive_points[2][:90] if len(substantive_points)>2 else 'Meningkatkan akurasi analisis dan meminimalkan tingkat kesalahan (error rate)',
-                'Meningkatkan biaya lisensi perangkat keras tanpa dampak performa'
-            ],
-            'correct': 2,
-            'explanation': 'Metodologi yang sistematis dirancang untuk menjaga konsistensi, keandalan, dan efektivitas hasil analisis data.'
-        }
-    ]
-
-    selected_adaptive_quiz = random.sample(adaptive_quiz_pool, min(len(adaptive_quiz_pool), len(adaptive_quiz_pool)))
-    shuffled_adaptive_quiz = shuffle_quiz_options(selected_adaptive_quiz)
 
     return {
         'title': doc_title,
@@ -1742,22 +1623,19 @@ def generate_universal_ai_presentation(doc_title, filename, slides, combined_tex
             'key_takeaways': takeaways,
             'cheat_sheet': cheat_sheet,
             'exam_tips': [
-                f'Kuasai Definisi Inti: Pahami secara mendalam konsep "{topic_1}".',
-                f'Perhatikan Hubungan Komponen: Dosen pengampu umumnya menguji bagaimana "{topic_2}" berinteraksi dengan "{topic_3}".',
-                'Cermati perbedaan terminologi teknis pada diagram perbandingan slide.'
+                f'Kuasai Konsep Inti: Pahami secara mendalam konsep "{clean_topics[0]}".',
+                f'Hubungan Antar Komponen: Pelajari keterkaitan antara "{clean_topics[0]}" dengan "{clean_topics[1] if len(clean_topics)>1 else clean_topics[0]}".',
+                'Perhatikan perintah teknis dan terminologi spesifik yang sering diujikan dalam soal ujian.',
+                'Lakukan latihan mandiri pada soal kuis interaktif untuk menguji kesiapan pemahaman materi.'
             ]
         },
-        'quiz': shuffled_adaptive_quiz,
-        'flashcards': [
-            {'front': f'Definisi {doc_title[:30]}', 'back': substantive_points[0], 'badge': 'Konsep Inti'},
-            {'front': f'{topic_1[:30]}', 'back': substantive_points[1] if len(substantive_points)>1 else 'Prinsip teoritis sistem.', 'badge': 'Fondasi'},
-            {'front': f'{topic_2[:30]}', 'back': substantive_points[2] if len(substantive_points)>2 else 'Mekanisme interaksi data.', 'badge': 'Arsitektur'}
-        ],
+        'quiz': shuffled_quiz,
+        'flashcards': flashcards,
         'video': {
-            'duration': '3:45',
+            'duration': '4:15',
             'lecturer': 'Dr. Maya AI - Virtual Lecturer',
             'chapters': [{'time': '00:00', 'title': f'Bab 1: Pengantar {doc_title[:25]}'}],
-            'slides': [{'slide_num': 1, 'title': doc_title, 'subtitle': 'Ringkasan Materi AI', 'bullet_points': [substantive_points[0][:60]], 'transcript': f'Selamat datang di materi {doc_title}!'}]
+            'slides': [{'slide_num': 1, 'title': doc_title, 'subtitle': 'Ringkasan Materi Kuliah AI', 'bullet_points': [clean_statements[0][:60]], 'transcript': f'Selamat datang di materi {doc_title}!'}]
         }
     }
 
@@ -1768,25 +1646,22 @@ if __name__ == '__main__':
         
     file_path = sys.argv[1]
     refresh_quiz_only = '--refresh-quiz' in sys.argv
-    
-    gemini_key = ''
-    orig_title = ''
-    orig_filename = ''
-    
-    for i, arg in enumerate(sys.argv):
-        if arg == '--gemini-key' and i + 1 < len(sys.argv):
-            gemini_key = sys.argv[i + 1]
-        elif arg == '--title' and i + 1 < len(sys.argv):
-            orig_title = sys.argv[i + 1]
-        elif arg == '--filename' and i + 1 < len(sys.argv):
-            orig_filename = sys.argv[i + 1]
+
+    original_title = None
+    if '--original-title' in sys.argv:
+        try:
+            ot_idx = sys.argv.index('--original-title')
+            if ot_idx + 1 < len(sys.argv):
+                original_title = sys.argv[ot_idx + 1]
+        except Exception:
+            pass
 
     if not os.path.exists(file_path):
         print(json.dumps({'error': f'File not found: {file_path}'}))
         sys.exit(1)
         
     slides = extract_text_from_file(file_path)
-    result = analyze_and_generate(file_path, slides, gemini_key, orig_title, orig_filename, is_refresh_quiz=refresh_quiz_only)
+    result = analyze_and_generate(file_path, slides, original_title)
     
     if refresh_quiz_only:
         print(json.dumps({'quiz': result.get('quiz', [])}, ensure_ascii=True))
