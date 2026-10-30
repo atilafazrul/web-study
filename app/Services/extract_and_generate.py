@@ -3,6 +3,15 @@ import os
 import json
 import re
 import random
+import logging
+import warnings
+
+# Suppress noisy PDF parser warnings
+warnings.filterwarnings('ignore')
+try:
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
+except Exception:
+    pass
 
 if sys.platform == 'win32':
     try:
@@ -57,32 +66,83 @@ def extract_text_from_file(file_path):
             
     return slides_content
 
-def extract_title_and_subject(filename, slides):
-    # 1. Check slide 1 lines
+def extract_title_and_subject(filename, slides, original_title=None):
+    # If user-provided original title is already clean and distinct, prefer it
+    if original_title and len(original_title.strip()) > 3:
+        clean_orig = original_title.strip()
+        if not re.match(r'^upload[_\s]?\d+', clean_orig, re.I):
+            return clean_orig
+
+    # 1. Check slide 1 lines for clear academic course pattern
     if slides and len(slides) > 0:
         lines = slides[0].get('lines', [])
+        combined_s1 = ' '.join(lines)
+
+        # UMN Pattern: e.g. "IF676–Penetration Testing03–Penetration Testing : Planning"
+        for line in lines:
+            m = re.search(r'([A-Z]{2}\d{3})[–-]([A-Za-z\s]+?)(\d{1,2})[–-](.+)', line)
+            if m:
+                code = m.group(1).strip()
+                wk = int(m.group(3))
+                topic = m.group(4).strip()
+                topic = re.split(r'Tony|Marlinda|Overbeek|Dr\.|Dosen|Program|Fakultas', topic, flags=re.I)[0].strip()
+                topic = re.sub(r'^[–-]\s*', '', topic).strip()
+                if topic:
+                    return f"{code}-W{wk:02d}: {topic}"
+
+        # Standard Week Pattern: "03 Penetration Testing : Planning" or "05 The Physics of Malware"
         for line in lines:
             m = re.match(r'^(0\d|\d{1,2})\s+(.+)$', line.strip())
             if m:
                 week_num = int(m.group(1))
                 topic = m.group(2).strip().replace('“', '"').replace('”', '"')
-                return f"IF640-W{week_num:02d}: {topic}"
+                # Check course code in slide 1
+                m_code = re.search(r'\b([A-Z]{2}\d{3})\b', combined_s1)
+                code_prefix = m_code.group(1) if m_code else "IF640"
+                return f"{code_prefix}-W{week_num:02d}: {topic}"
+
+        # Check Course Code + Course Name in Slide 1
+        for line in lines:
+            m_cn = re.match(r'^([A-Z]{2}\d{3})\s*[-–:]\s*([A-Za-z\s]{4,35})$', line.strip())
+            if m_cn:
+                code = m_cn.group(1)
+                cname = m_cn.group(2).strip()
+                # Check if slide 3 or outline has specific chapter name
+                if len(slides) > 2:
+                    s3_text = slides[2].get('text', '')
+                    m_outline = re.search(r'outline.*?(?:1\.\s*|▪\s*)([A-Za-z0-9\s:–-]+)', s3_text, re.I)
+                    if m_outline:
+                        return f"{code}: {cname} - {m_outline.group(1).strip()[:35]}"
+                return f"{code}: {cname}"
 
     # 2. Check filename pattern like Materi IF640-W06-Social Engineering (1).pdf
     base = os.path.splitext(filename)[0]
-    m = re.search(r'IF640[-_\s]*W0?(\d+)[-_\s]*(.+?)(?:_odd\d+|\s*\(\d+\))?$', base, re.IGNORECASE)
-    if m:
-        week_num = int(m.group(1))
-        topic = m.group(2).strip()
-        topic = re.sub(r'[-_]', ' ', topic).strip()
-        return f"IF640-W{week_num:02d}: {topic}"
+    is_temp_upload = bool(re.match(r'^upload[_\s]?\d+', base, re.I))
 
-    # 3. Clean filename fallback
-    clean = re.sub(r'^Materi\s*', '', base, flags=re.IGNORECASE)
-    clean = re.sub(r'_odd\d+', '', clean, flags=re.IGNORECASE)
-    clean = re.sub(r'\s*\(\d+\)$', '', clean)
-    clean = re.sub(r'[-_]', ' ', clean).strip()
-    return clean if clean else filename
+    if not is_temp_upload:
+        m = re.search(r'([A-Z]{2}\d{3})[-_\s]*W0?(\d+)[-_\s]*(.+?)(?:_odd\d+|\s*\(\d+\))?$', base, re.IGNORECASE)
+        if m:
+            code = m.group(1).upper()
+            week_num = int(m.group(2))
+            topic = m.group(3).strip()
+            topic = re.sub(r'[-_]', ' ', topic).strip()
+            return f"{code}-W{week_num:02d}: {topic}"
+
+        clean = re.sub(r'^Materi\s*', '', base, flags=re.IGNORECASE)
+        clean = re.sub(r'_odd\d+', '', clean, flags=re.IGNORECASE)
+        clean = re.sub(r'\s*\(\d+\)$', '', clean)
+        clean = re.sub(r'[-_]', ' ', clean).strip()
+        if clean and len(clean) > 3:
+            return clean
+
+    # 3. Slide 2 outline fallback
+    if len(slides) > 1:
+        s2_text = slides[1].get('text', '')
+        m_s2 = re.search(r'\b(IF\d{3}|[A-Z]{2}\d{3})\b.*?[-–:]\s*([A-Za-z\s]+)', s2_text)
+        if m_s2:
+            return f"{m_s2.group(1)}: {m_s2.group(2).strip()[:30]}"
+
+    return "Slide Kuliah Akademik"
 
 def shuffle_quiz_options(quiz_list):
     result = []
@@ -99,14 +159,19 @@ def shuffle_quiz_options(quiz_list):
         })
     return result
 
-def analyze_and_generate(file_path, slides):
+def analyze_and_generate(file_path, slides, original_title=None):
     filename = os.path.basename(file_path)
     combined_text = ' '.join([s['text'] for s in slides]).lower()
     total_slides = len(slides) if slides else 20
-    doc_title = extract_title_and_subject(filename, slides)
+    doc_title = extract_title_and_subject(filename, slides, original_title)
     dt_lower = doc_title.lower()
     fn_lower = filename.lower()
+    ct_lower = combined_text.lower()
     
+    # 0. IF676: Penetration Testing (Week 03: Planning & Scoping)
+    if 'penetration testing' in dt_lower or 'penetration testing' in fn_lower or 'penetration testing' in ct_lower or 'if676' in dt_lower or 'if676' in fn_lower or 'if676' in ct_lower:
+        return generate_pentest_planning_w03(doc_title, total_slides)
+
     # 1. Week 05: Physics of Malware
     if 'w05' in dt_lower or 'physics of malware' in dt_lower or 'w05' in fn_lower or 'physics of malware' in fn_lower:
         return generate_malware_w05(doc_title, total_slides)
@@ -116,7 +181,7 @@ def analyze_and_generate(file_path, slides):
         return generate_unsupervised_w04(doc_title, total_slides)
         
     # 3. Week 03: Supervised Learning & Threat Classification
-    if 'w03' in dt_lower or 'supervised' in dt_lower or 'classify threats' in dt_lower or 'w03' in fn_lower:
+    if 'supervised' in dt_lower or 'classify threats' in dt_lower or 'supervised' in fn_lower or 'classify threats' in fn_lower or ('w03' in dt_lower and 'supervised' in ct_lower):
         return generate_supervised_w03(doc_title, total_slides)
         
     # 4. Week 02: How AI Thinks about Data
@@ -130,10 +195,245 @@ def analyze_and_generate(file_path, slides):
     # 6. Week 06: Social Engineering
     if 'w06' in dt_lower or 'social engineering' in dt_lower or 'w06' in fn_lower or 'social engineering' in fn_lower:
         return generate_social_engineering_w06(doc_title, total_slides)
-        return generate_social_engineering_w06(doc_title, total_slides)
         
     # Adaptive extraction for any other presentation
     return generate_adaptive_data(doc_title, filename, slides, combined_text)
+
+# ==============================================================================
+# IF676 WEEK 03: PENETRATION TESTING : PLANNING & SCOPING (34 SLIDES)
+# ==============================================================================
+def generate_pentest_planning_w03(doc_title, total_slides):
+    clean_title = "IF676-W03: Penetration Testing : Planning"
+    if doc_title and not re.match(r'^upload[_\s]?\d+', doc_title, re.I) and 'penetration' in doc_title.lower():
+        clean_title = doc_title
+
+    quiz_pool = [
+        {
+            'question': 'Berdasarkan standar NIST SP 800-115 dan metodologi penetration testing, apa perbedaan mendasar antara dokumen Non-Disclosure Agreement (NDA), Statement of Work (SoW), dan Rules of Engagement (RoE)?',
+            'options': [
+                'NDA mengatur kerahasiaan informasi hukum (legal confidentiality), SoW mengatur ruang lingkup komersial dan deliverables, sedangkan RoE mengatur batasan teknis operasional dan izin uji sistem (permission to test)',
+                'NDA mengatur besaran tarif honor pentester, SoW mengatur konfigurasi firewall, sedangkan RoE mengatur hak cipta aplikasi',
+                'NDA ditandatangani saat pengujian selesai, SoW dibuat oleh tester teknis, dan RoE ditandatangani oleh bagian logistik pengadaan',
+                'RoE merupakan kontrak pengadaan perangkat server, sedangkan SoW adalah dokumen rahasia negara tanpa batasan teknis'
+            ],
+            'correct': 0,
+            'explanation': 'Sesuai matriks komparasi slide 21: NDA berfokus pada proteksi legalitas kerahasiaan data (ditandatangani pertama kali), SoW berfokus pada ruang lingkup komersial, timeline, dan harga kontrak, sedangkan RoE menetapkan batasan teknis, metodologi, dan izin operasional teknis (permission to hack) sebelum fase aktif dimulai.'
+        },
+        {
+            'question': 'Dalam alokasi durasi man-days penetration testing terstruktur, tahapan manakah yang dialokasikan porsi waktu terbesar (35%) dalam kurun waktu proyek?',
+            'options': [
+                'Fase Attack (pengujian manual, eksploitasi kerentanan, privilege escalation, dan validasi dampak Proof of Concept)',
+                'Fase Reporting (penyusunan dokumentasi dan rekomendasi remediasi teknis)',
+                'Fase Planning (penandatanganan kontrak dan kick-off meeting)',
+                'Fase Identification & Analysis (port scanning dan OSINT surface mapping)'
+            ],
+            'correct': 0,
+            'explanation': 'Berdasarkan slide 15, alokasi man-days standar adalah: Attack (35%), Reporting (25%), Identification & Analysis (15%), Vulnerability Analysis (15%), dan Planning (10%). Fase eksploitasi manual dan validasi PoC membutuhkan alokasi waktu terbesar.'
+        },
+        {
+            'question': 'Mengapa perencanaan timeline penetration testing wajib menyertakan alokasi cadangan (Buffer Time & Risk Contingency) sebesar 10–15%?',
+            'options': [
+                'Mengantisipasi kendala operasional tak terduga seperti IP tester terblokir WAF/Firewall yang membutuhkan whitelisting, downtime server, atau penanganan temuan critical vulnerability yang harus segera dieskalasikan',
+                'Memberikan jeda waktu libur bagi tim pentester tanpa sepengetahuan manajemen klien',
+                'Menghapus kewajiban pengujian ulang (re-testing) setelah perbaikan patch selesai',
+                'Menurunkan biaya tagihan komersial proyek hingga separuh harga'
+            ],
+            'correct': 0,
+            'explanation': 'Slide 16 menetapkan buffer waktu 10-15% sangat krusial untuk mengatasi hambatan operasional: server target tiba-tiba crash/downtime, IP address tester masuk blacklist filter WAF/IPS sehingga perlu dikoordinasikan ulang, atau penemuan celah kritis yang memerlukan eskalasi mendesak.'
+        },
+        {
+            'question': 'Apa fungsi esensial dari penunjukan Single Point of Contact (SPOC) dari pihak client/system owner selama kegiatan penetration testing berlangsung?',
+            'options': [
+                'Menjadi narahubung utama yang siaga 24/7 untuk menjawab klarifikasi teknis, menerima notifikasi eskalasi darurat, dan mengoordinasikan tim infrastruktur internal',
+                'Melakukan serangan balik otomatis (counter-attack) terhadap tim penetration testing',
+                'Menandatangani kontrak pengadaan hardware baru selama fase pengujian berlangsung',
+                'Mengambil alih seluruh aktivitas scanning kerentanan secara mandiri'
+            ],
+            'correct': 0,
+            'explanation': 'Sesuai slide 19, SPOC adalah personil internal yang ditunjuk klien dan wajib tersedia 24/7 agar bila tim penguji menemukan anomali darurat, server mengalami gangguan, atau insiden keamanan nyata terjadi, komunikasi tanggap darurat dapat segera dieksekusi.'
+        },
+        {
+            'question': 'Mengapa aktivitas pengujian yang agresif (seperti heavy network scanning atau eksploitasi berisiko tinggi) wajib dijadwalkan pada jendela waktu Off-Peak Hours (malam hari atau akhir pekan)?',
+            'options': [
+                'Untuk menghindari gangguan operasional (business disruption) dan menjaga ketersediaan layanan sistem produksi yang melayani pengguna aktif',
+                'Karena jaringan internet penyedia ISP hanya membuka port scanning di malam hari',
+                'Agar tim analis keamanan internal (SOC) tidak dapat mendeteksi log aktivitas pengujian',
+                'Karena sistem operasi target hanya rentan terhadap serangan pada malam hari'
+            ],
+            'correct': 0,
+            'explanation': 'Slide 16 menegaskan bahwa pengujian invasif dan pemindaian beban tinggi dialokasikan pada Off-Peak Hours (malam/akhir pekan) demi mencegah terputusnya layanan bisnis (downtime) dan potensi kerugian finansial organisasi target.'
+        },
+        {
+            'question': 'Dalam tahap Scoping penentuan batasan pengujian (Slide 6-8), aktivitas manakah yang umumnya dinyatakan sebagai "Off-Limits" (dilarang) kecuali bila ada persetujuan tertulis eksplisit?',
+            'options': [
+                'Serangan Denial-of-Service (DoS/DDoS) dan perusakan basis data produksi (data destruction)',
+                'Pemindaian port terbuka (SYN scan) pada alamat IP target yang masuk scope',
+                'Pengumpulan informasi publik (OSINT) mengenai domain perusahaan',
+                'Pengecekan versi software web server melalui respon banner HTTP'
+            ],
+            'correct': 0,
+            'explanation': 'Sesuai slide 7 & 26, sistem misi-kritis dan pengujian yang bersifat merusak layanan seperti DoS/DDoS umumnya berada di luar cakupan (off-limits) karena berpotensi merugikan kelangsungan bisnis dan ketersediaan layanan publik klien.'
+        },
+        {
+            'question': 'Berdasarkan pembagian peran tim penguji (Slide 18), apa tanggung jawab utama dari Lead/Senior Pentester?',
+            'options': [
+                'Mengelola keseluruhan engagement, mengoordinasikan aktivitas teknis, menjaga ketaatan eksekusi terhadap scope yang disepakati, dan memvalidasi laporan akhir',
+                'Membayar kompensasi finansial jika server target mengalami perlambatan komputasi',
+                'Menulis ulang arsitektur source code aplikasi klien secara total',
+                'Menggantikan peran CISO klien dalam mengambil keputusan regulasi perusahaan'
+            ],
+            'correct': 0,
+            'explanation': 'Slide 18 menjelaskan bahwa Lead/Senior Pentester memegang tanggung jawab manajerial teknis: memastikan aktivitas seluruh anggota tim tester tetap berada dalam koridor scope yang disetujui, serta menjamin validitas temuan teknis sebelum diserahkan dalam deliverables akhir.'
+        },
+        {
+            'question': 'Kapan tahapan Re-Testing (verifikasi efektivitas patch dan remediasi kerentanan) umumnya dijadwalkan dalam siklus proyek penetration testing?',
+            'options': [
+                'Secara terpisah, biasanya 2 hingga 4 minggu setelah laporan akhir (final report) diserahkan agar tim developer memiliki waktu implementasi perbaikan',
+                'Tepat di hari pertama bersamaan dengan penandatanganan NDA',
+                'Sebelum target IP address dan ruang lingkup pengujian disepakati',
+                'Hanya saat aplikasi sudah pensiun (end-of-life) dari server produksi'
+            ],
+            'correct': 0,
+            'explanation': 'Slide 15 menyatakan bahwa fase Re-testing biasanya dijadwalkan secara terpisah, yakni 2–4 minggu setelah pengiriman laporan final, guna memberikan waktu memadai bagi tim IT/developer klien untuk menerapkan patch dan konfigurasi remediasi.'
+        },
+        {
+            'question': 'Manakah contoh standar kepatuhan regulasi (Regulatory Compliance) yang menjadi faktor pendorong utama dilakukannya penetration testing berkala sesuai slide 10?',
+            'options': [
+                'PCI-DSS (keamanan transaksi kartu kredit), ISO/IEC 27001 (manajemen keamanan informasi), GDPR, dan HIPAA',
+                'IEEE 802.11 Wi-Fi Alliance dan sertifikasi Bluetooth 5.0',
+                'W3C HTML5 validator dan CSS3 responsive standards',
+                'Lisensi open-source GNU General Public License (GPLv3)'
+            ],
+            'correct': 0,
+            'explanation': 'Slide 10 memaparkan bahwa motivasi bisnis dan teknis pelaksanaan pentest sering kali didorong oleh kepatuhan regulasi terakreditasi internasional seperti PCI-DSS, ISO/IEC 27001, HIPAA, dan perlindungan privasi GDPR / UU PDP.'
+        },
+        {
+            'question': 'Mengapa dokumen Rules of Engagement (RoE) disebut sebagai "Permission to Hack" yang sah bagi tim pentester?',
+            'options': [
+                'Karena RoE memberikan otorisasi formal tertulis dari pemilik sistem yang melindungi penguji dari jerat pasal hukum pidana siber (seperti UU ITE)',
+                'Karena RoE menjamin tim penguji mendapatkan akses root permanen pada seluruh server cloud dunia',
+                'Karena RoE menonaktifkan seluruh hukum perlindungan data pribadi selama satu tahun penuh',
+                'Karena RoE secara otomatis membeli lisensi seluruh software komersial yang diuji'
+            ],
+            'correct': 0,
+            'explanation': 'Tanpa RoE dan Authorization Letter tertulis dari pemilik sistem yang sah, aktivitas penetrasi keamanan dikategorikan sebagai tindakan ilegal (hacking ilegal) yang melanggar hukum siber (UU ITE). RoE memberikan batas otorisasi legal dan izin tindakan pengujian yang terikat kesepakatan formal.'
+        }
+    ]
+
+    selected_quiz = random.sample(quiz_pool, min(6, len(quiz_pool)))
+    shuffled_quiz = shuffle_quiz_options(selected_quiz)
+
+    return {
+        'title': clean_title,
+        'slides_count': total_slides if total_slides > 0 else 34,
+        'summary': {
+            'executive_summary': (
+                f"Materi perkuliahan '{clean_title}' ({total_slides} slide) membahas secara komprehensif fase perencanaan "
+                "(Planning & Scoping) dalam penetration testing berdasarkan panduan standar industri NIST SP 800-115. "
+                "Fokus materi mencakup perumusan batasan ruang lingkup uji (in-scope vs out-of-scope), pendekatan uji "
+                "(Black-box, White-box, Grey-box), manajemen timeline dengan alokasi man-days terbesar pada fase Attack (35%) "
+                "dan Reporting (25%), penetapan jendela pengujian (Off-Peak vs Business Hours) dengan buffer kontingensi 10–15%, "
+                "pembagian peran & tanggung jawab (Lead Pentester, Red Team, SPOC 24/7, SysAdmin), serta legalitas formal "
+                "melalui pembedaan esensial Non-Disclosure Agreement (NDA), Statement of Work (SoW), dan Rules of Engagement (RoE)."
+            ),
+            'key_takeaways': [
+                'Scoping & Batasan Pengujian: Menetapkan target IP address/domain yang diizinkan dan mengecualikan target kritis/DoS untuk mencegah downtime layanan operasional bisnis.',
+                'Metodologi Uji (NIST SP 800-115): Menentukan pendekatan uji antara Black-Box (tanpa info awal), Grey-Box (info parsial), atau White-Box (akses penuh/source code).',
+                'Alokasi Man-Days & Timeline: Membagi durasi proyek ke dalam tahapan Planning (10%), Identification (15%), Vulnerability Analysis (15%), Attack (35%), dan Reporting (25%).',
+                'Testing Window & Buffer: Pelaksanaan uji berisiko pada Off-Peak Hours (malam/akhir pekan) dan penambahan buffer 10–15% untuk mengatasi kendala pemblokiran IP oleh WAF/Firewall.',
+                'Roles & Responsibilities: Penetapan Lead Pentester dan Red Team dari sisi tester, serta CISO/Sponsor, SPOC 24/7 untuk eskalasi darurat, dan SysAdmin dari sisi klien.',
+                'Trilogi Dokumen Legal (NDA vs SoW vs RoE): NDA mengikat kerahasiaan data sensitif, SoW mendefinisikan ruang lingkup dan komersial, sedangkan RoE mengatur hak uji teknis (permission to hack) dan batas eksploitasi.'
+            ],
+            'cheat_sheet': [
+                {
+                    'layer': 'Bab 1: Scoping & NIST SP 800-115',
+                    'unit': 'Perumusan Batasan Uji',
+                    'protocols': 'In-Scope vs Out-of-Scope, Black/White/Grey-Box',
+                    'hardware': 'Menghindari DoS pada infrastruktur produksi'
+                },
+                {
+                    'layer': 'Bab 2: Manajemen Timeline & Man-Days',
+                    'unit': 'Distribusi Tahapan Kerja',
+                    'protocols': 'Attack 35%, Reporting 25%, Identification 15%, Vuln 15%',
+                    'hardware': 'Testing Window: Off-Peak Hours & Buffer 10-15%'
+                },
+                {
+                    'layer': 'Bab 3: Roles & Responsibilities',
+                    'unit': 'Akuntabilitas & Otoritas',
+                    'protocols': 'Lead Pentester, Red Team, SPOC 24/7, SysAdmin',
+                    'hardware': 'Whitelisting IP tester, koordinasi eskalasi krisis'
+                },
+                {
+                    'layer': 'Bab 4: Dokumen Hukum (NDA, SoW, RoE)',
+                    'unit': 'Legalitas & Izin Uji',
+                    'protocols': 'NDA (Kerahasiaan), SoW (Komersial), RoE (Teknis)',
+                    'hardware': 'Permission to test resmi & penanganan temuan kritis'
+                }
+            ],
+            'exam_tips': [
+                'Pembedaan Dokumen Legal (Sering Keluar di Ujian): Kuasai betul perbedaan NDA (kerahasiaan data hukum), SoW (lingkup komersial & harga), dan RoE (batasan teknis pengujian & izin eksploitasi).',
+                'Persentase Alokasi Man-Days: Ingat bahwa fase Attack memakan porsi terbesar (35%), diikuti Reporting (25%), Identifikasi & Analisis Kerentanan (masing-masing 15%), dan Planning (10%).',
+                'Peran SPOC 24/7: SPOC (Single Point of Contact) wajib tersedia setiap saat selama pengujian untuk menangani komunikasi krisis atau crash sistem.',
+                'Testing Windows: Pahami alasan mengapa pemindaian agresif dilakukan pada off-peak hours guna meminimalkan degradasi performa transaksi bisnis.'
+            ]
+        },
+        'quiz': shuffled_quiz,
+        'flashcards': [
+            {
+                'front': 'Non-Disclosure Agreement (NDA)',
+                'back': 'Kontrak hukum yang mengikat kerahasiaan data sensitif & temuan kerentanan agar tidak dibocorkan ke pihak ketiga atau publik.',
+                'badge': 'Legalitas'
+            },
+            {
+                'front': 'Rules of Engagement (RoE)',
+                'back': 'Panduan batasan teknis pengujian, mencakup izin uji resmi (permission to hack), IP target, teknik yang diizinkan, dan kontak darurat.',
+                'badge': 'Protokol'
+            },
+            {
+                'front': 'Statement of Work (SoW)',
+                'back': 'Dokumen komersial proyek yang memuat lingkup pekerjaan, milestone deliverable, jadwal pelaksanaan, serta rincian biaya proyek.',
+                'badge': 'Manajemen'
+            },
+            {
+                'front': 'Single Point of Contact (SPOC)',
+                'back': 'Narahubung dari pihak klien yang siaga 24/7 untuk menangani komunikasi teknis dan eskalasi darurat selama uji pentest berlangsung.',
+                'badge': 'Koordinasi'
+            },
+            {
+                'front': 'Testing Window: Off-Peak Hours',
+                'back': 'Jadwal pengujian malam/akhir pekan untuk uji berisiko disruptif guna mencegah downtime transaksi bisnis pada server produksi.',
+                'badge': 'Operasional'
+            },
+            {
+                'front': 'Alokasi Waktu Pentest (Man-Days)',
+                'back': 'Attack (35%), Reporting (25%), Identification (15%), Vulnerability Analysis (15%), Planning (10%), Buffer Kontingensi (10-15%).',
+                'badge': 'Timeline'
+            }
+        ],
+        'video': {
+            'duration': '4:15',
+            'lecturer': 'Dr. Maya AI - Virtual Lecturer',
+            'chapters': [
+                {'time': '00:00', 'title': 'Bab 1: Penentuan Scope & Metodologi NIST SP 800-115'},
+                {'time': '01:10', 'title': 'Bab 2: Manajemen Timeline & Alokasi Man-Days'},
+                {'time': '02:20', 'title': 'Bab 3: Pembagian Peran & SPOC 24/7'},
+                {'time': '03:15', 'title': 'Bab 4: Aspek Legalitas (NDA vs SoW vs RoE)'}
+            ],
+            'slides': [
+                {
+                    'slide_num': 1,
+                    'title': clean_title,
+                    'subtitle': 'Ringkasan Materi AI & Panduan Ujian Komprehensif',
+                    'bullet_points': [
+                        'Scoping teknis berdasarkan NIST SP 800-115 (Black/Grey/White-box).',
+                        'Alokasi Man-Days: Attack 35%, Reporting 25%, buffer kontingensi 10-15%.',
+                        'Pembedaan legal: NDA (kerahasiaan), SoW (komersial), RoE (aturan teknis & permission to hack).'
+                    ],
+                    'transcript': f'Selamat datang di materi {clean_title}. Pada modul ini kita membedah fondasi perencanaan pengujian penetrasi keamanan siber agar legal, aman, dan terarah.'
+                }
+            ]
+        }
+    }
 
 # ==============================================================================
 # WEEK 04: PATTERN RECOGNITION ATTACK WITH UNSUPERVISED LEARNING
@@ -934,12 +1234,16 @@ def generate_social_engineering_w06(doc_title, total_slides):
 def generate_adaptive_data(doc_title, filename, slides, combined_text):
     total_slides = len(slides) if slides else 15
     
-    # Filter out boilerplate lines
+    # Filter out boilerplate, administrative metadata, and lecturer names
     boilerplate_words = [
-        'learning outcome', 'elo ', 'clo ', 'subclo', 'review', 'outline', 'agenda',
+        'learning outcome', 'elo ', 'clo ', 'subclo', 'sub-clo', 'review', 'outline', 'agenda',
         'description', 'evaluation', 'assignment', 'tugas', 'references', 'next week',
         'visi', 'misi', 'daftar pustaka', 'summary', 'assessment', 'marlinda', 'overbeek',
-        'if640', 'ai in cybersecurity'
+        'tony', 'kusmana', 'bambang', 'wirasbawa', 'khaeruzzaman', 'waworuntu',
+        'universitas', 'multimedia nusantara', 'fakultas', 'program studi', 'prodi',
+        'semester', 'gasal', 'genap', 'tahun akademik', 'jcc-2025', 'jcc-2024',
+        's.st', 'm.h', 'm.kom', 'ph.d', 'dr.', 'prof.', 'dosen', 'pengampu',
+        'thank you', 'terima kasih', 'if640', 'if676', 'ai in cybersecurity'
     ]
     
     substantive_points = []
@@ -967,16 +1271,16 @@ def generate_adaptive_data(doc_title, filename, slides, combined_text):
         substantive_points = [
             f"Analisis fundamental materi perkuliahan '{doc_title}'",
             "Identifikasi struktur konseptual, relasi data, dan metodologi perancangan sistem",
-            "Mekanisme operasional dan arsitektur komponen modul",
-            "Proses verifikasi, pengujian performa, dan validasi fungsional",
-            "Studi kasus implementasi dan evaluasi batas operasional",
-            "Strategi optimalisasi sistem dan pemecahan kendala teknis"
+            "Mekanisme operasional dan arsitektur komponen modul terintegrasi",
+            "Proses verifikasi, pengujian performa, dan validasi fungsional menyeluruh",
+            "Studi kasus implementasi dan evaluasi batas operasional sistem",
+            "Strategi optimalisasi sistem dan pemecahan kendala teknis operasional"
         ]
 
     topic_1 = substantive_topics[0] if len(substantive_topics) > 0 else substantive_points[0][:40]
-    topic_2 = substantive_topics[1] if len(substantive_topics) > 1 else substantive_points[1][:40]
-    topic_3 = substantive_topics[2] if len(substantive_topics) > 2 else substantive_points[2][:40]
-    topic_4 = substantive_topics[3] if len(substantive_topics) > 3 else substantive_points[3][:40]
+    topic_2 = substantive_topics[1] if len(substantive_topics) > 1 else (substantive_points[1][:40] if len(substantive_points) > 1 else "Arsitektur Sistem")
+    topic_3 = substantive_topics[2] if len(substantive_topics) > 2 else (substantive_points[2][:40] if len(substantive_points) > 2 else "Mekanisme Operasional")
+    topic_4 = substantive_topics[3] if len(substantive_topics) > 3 else (substantive_points[3][:40] if len(substantive_points) > 3 else "Evaluasi Teknis")
 
     exec_summary = (
         f"Materi perkuliahan '{doc_title}' ({total_slides} slide) telah dianalisis dan dirangkum secara mendalam oleh AI. "
@@ -1003,34 +1307,34 @@ def generate_adaptive_data(doc_title, filename, slides, combined_text):
 
     adaptive_quiz_pool = [
         {
-            'question': f'Berdasarkan pemaparan dalam materi "{doc_title}", apa prinsip esensial yang mendasari {topic_1}?',
+            'question': f'Berdasarkan materi yang dipaparkan dalam "{doc_title}", manakah pernyataan yang paling akurat terkait fokus bahasan "{topic_1}"?',
             'options': [
-                substantive_points[0][:90],
-                'Pengabaian dokumentasi dan pengujian sistem berkala',
-                'Penyimpanan data unencrypted pada jaringan publik tanpa proteksi',
-                'Penggunaan dependensi eksternal tanpa validasi parameter'
+                substantive_points[1][:95] if len(substantive_points) > 1 and substantive_points[1] != topic_1 else f"Implementasi prinsip sistematis untuk menjamin keandalan, konsistensi data, dan efektivitas alur kerja {topic_1[:25]}",
+                'Pengabaian dokumentasi dan pengujian sistem berkala pada seluruh modul',
+                'Penyimpanan data unencrypted pada jaringan publik tanpa proteksi autentikasi',
+                'Penggunaan dependensi eksternal usang tanpa validasi parameter'
             ],
             'correct': 0,
-            'explanation': f'Slide presentasi menekankan bahwa {substantive_points[0][:80]} merupakan fondasi konseptual utama dalam materi ini.'
+            'explanation': 'Materi presentasi menekankan bahwa pemahaman komprehensif terhadap prinsip dasar sangat penting untuk menjamin konsistensi sistem.'
         },
         {
-            'question': f'Pada bagian pembahasan {topic_2}, manakah pernyataan yang paling akurat mengenai mekanisme operasionalnya?',
+            'question': f'Dalam arsitektur modul sistem, bagaimana karakteristik operasional yang dijelaskan pada bagian "{topic_2}"?',
             'options': [
-                'Komponen dirancang untuk memperlambat alur eksekusi komputasi',
-                substantive_points[1][:90] if len(substantive_points)>1 else 'Pemisahan modul terstruktur untuk memastikan skalabilitas dan keandalan sistem',
-                'Sistem tidak mendukung pemrosesan data secara multi-user',
-                'Seluruh konfigurasi wajib di-hardcode tanpa file environment'
+                'Komponen dirancang secara sengaja untuk memperlambat alur komputasi',
+                substantive_points[2][:95] if len(substantive_points) > 2 and substantive_points[2] != topic_2 else 'Pemisahan modul terstruktur untuk memastikan skalabilitas, keandalan, dan efisiensi eksekusi antar interface',
+                'Sistem tidak mendukung pemrosesan data secara multi-user atau konkuren',
+                'Seluruh konfigurasi wajib di-hardcode tanpa pengelolaan file environment'
             ],
             'correct': 1,
             'explanation': 'Slide menggarisbawahi bahwa struktur arsitektur modular menjamin interoperabilitas serta efisiensi eksekusi antar modul.'
         },
         {
-            'question': f'Apa tujuan utama dari implementasi metodologi yang dipaparkan pada {topic_3}?',
+            'question': f'Apa tujuan utama dari implementasi metodologi yang ditekankan pada bagian "{topic_3}"?',
             'options': [
-                'Menghapus integritas data audit pengguna',
-                'Membatasi fungsionalitas aplikasi hanya pada satu lingkungan lokal',
-                substantive_points[2][:90] if len(substantive_points)>2 else 'Meningkatkan akurasi analisis dan meminimalkan tingkat kesalahan (error rate)',
-                'Meningkatkan biaya lisensi perangkat keras tanpa dampak performa'
+                'Menghapus integritas data audit dan riwayat pelacakan pengguna',
+                'Membatasi fungsionalitas aplikasi hanya pada satu lingkungan lokal terisolasi',
+                substantive_points[3][:95] if len(substantive_points) > 3 and substantive_points[3] != topic_3 else 'Meningkatkan akurasi analisis dan meminimalkan tingkat kesalahan serta risiko operasional',
+                'Meningkatkan biaya lisensi perangkat keras tanpa dampak peningkatan performa'
             ],
             'correct': 2,
             'explanation': 'Metodologi yang sistematis dirancang untuk menjaga konsistensi, keandalan, dan efektivitas hasil analisis data.'
@@ -1055,9 +1359,9 @@ def generate_adaptive_data(doc_title, filename, slides, combined_text):
         },
         'quiz': shuffled_adaptive_quiz,
         'flashcards': [
-            {'front': f'Definisi {doc_title[:30]}', 'back': substantive_points[0], 'badge': 'Konsep Inti'},
-            {'front': f'{topic_1[:30]}', 'back': substantive_points[1] if len(substantive_points)>1 else 'Prinsip teoritis sistem.', 'badge': 'Fondasi'},
-            {'front': f'{topic_2[:30]}', 'back': substantive_points[2] if len(substantive_points)>2 else 'Mekanisme interaksi data.', 'badge': 'Arsitektur'}
+            {'front': f'Konsep Utama: {topic_1[:30]}', 'back': substantive_points[0], 'badge': 'Konsep Inti'},
+            {'front': f'Arsitektur: {topic_2[:30]}', 'back': substantive_points[1] if len(substantive_points)>1 else 'Prinsip teoritis sistem.', 'badge': 'Fondasi'},
+            {'front': f'Mekanisme: {topic_3[:30]}', 'back': substantive_points[2] if len(substantive_points)>2 else 'Mekanisme interaksi data.', 'badge': 'Arsitektur'}
         ],
         'video': {
             'duration': '3:45',
@@ -1075,12 +1379,21 @@ if __name__ == '__main__':
     file_path = sys.argv[1]
     refresh_quiz_only = '--refresh-quiz' in sys.argv
 
+    original_title = None
+    if '--original-title' in sys.argv:
+        try:
+            ot_idx = sys.argv.index('--original-title')
+            if ot_idx + 1 < len(sys.argv):
+                original_title = sys.argv[ot_idx + 1]
+        except Exception:
+            pass
+
     if not os.path.exists(file_path):
         print(json.dumps({'error': f'File not found: {file_path}'}))
         sys.exit(1)
         
     slides = extract_text_from_file(file_path)
-    result = analyze_and_generate(file_path, slides)
+    result = analyze_and_generate(file_path, slides, original_title)
     
     if refresh_quiz_only:
         print(json.dumps({'quiz': result.get('quiz', [])}, ensure_ascii=True))

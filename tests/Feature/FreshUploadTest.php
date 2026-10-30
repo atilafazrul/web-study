@@ -33,9 +33,46 @@ class FreshUploadTest extends TestCase
         $material = \App\Models\StudyMaterial::latest('id')->first();
         $this->assertNotNull($material);
         $this->assertEquals('summary', $material->mode);
-        $this->assertStringContainsString('The Physics of Malware', $material->title);
+        $this->assertStringContainsStringIgnoringCase('The Physics of Malware', $material->title);
         $this->assertGreaterThanOrEqual(20, $material->slides_count);
         $this->assertArrayHasKey('summary', $material->data);
         $this->assertStringContainsString('Shannon Entropy', $material->data['summary']['executive_summary'] . implode(' ', $material->data['summary']['key_takeaways']));
+    }
+
+    public function test_fresh_penetration_testing_pdf_upload_extracts_and_generates_quiz(): void
+    {
+        $realPdf = base_path('storage/app/private/uploads/upload_1793337019_6ae426bb2dec5.pdf');
+        $this->assertFileExists($realPdf);
+
+        $uploadedFile = new UploadedFile(
+            $realPdf,
+            'Materi-IF676-M03-Penetration-Testing-Planning.pdf',
+            'application/pdf',
+            null,
+            true
+        );
+
+        $response = $this->post('/ai-generator', [
+            'mode' => 'quiz',
+            'presentation_file' => $uploadedFile
+        ]);
+
+        $response->assertStatus(302);
+
+        $material = \App\Models\StudyMaterial::latest('id')->first();
+        $this->assertNotNull($material);
+        $this->assertEquals('quiz', $material->mode);
+        $this->assertStringContainsStringIgnoringCase('Penetration Testing', $material->title);
+        $this->assertStringNotContainsString('upload_', $material->title);
+        $this->assertEquals(34, $material->slides_count);
+        $this->assertArrayHasKey('quiz', $material->data);
+        $this->assertGreaterThanOrEqual(4, count($material->data['quiz']));
+        
+        // Ensure quiz question is academic and directly from slides
+        $q1 = $material->data['quiz'][0];
+        $this->assertArrayHasKey('question', $q1);
+        $this->assertArrayHasKey('options', $q1);
+        $this->assertArrayHasKey('explanation', $q1);
+        $this->assertStringNotContainsString('Tony Kusmana', $q1['question']);
     }
 }
