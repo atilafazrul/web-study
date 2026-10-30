@@ -5,16 +5,17 @@
 @section('content')
 <div class="p-8 space-y-6 max-w-7xl mx-auto" x-data="{ 
     viewMode: 'calendar',
-    selectedDateRange: 'Oct 27 - Nov 2, 2026',
+    selectedDateRange: '{{ $selectedDateRange ?? 'Oct 26 - Nov 1, 2026' }}',
     dateDropdownOpen: false,
     isRegenerating: false,
-    selectedDay: 'Thu',
+    selectedDay: '{{ $todayDayName ?? 'Fri' }}',
     dayPlans: {{ json_encode($dayPlans) }},
     selectedPlan: {{ json_encode($todayPlan) }},
     calendarTasks: {{ json_encode($calendarTaskEvents ?? []) }},
-    currentYear: 2026,
-    currentMonth: 9, // 0-indexed: 9 = October
-    selectedDateKey: '2026-10-29',
+    currentYear: {{ $todayYear ?? 2026 }},
+    currentMonth: {{ $todayMonth ?? 9 }}, // 0-indexed
+    selectedDateKey: '{{ $todayDateKey ?? '2026-10-30' }}',
+    todayDateKey: '{{ $todayDateKey ?? '2026-10-30' }}',
     monthNames: ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'],
     dayNamesShort: ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'],
 
@@ -39,9 +40,9 @@
     },
 
     goToToday() {
-        this.currentYear = 2026;
-        this.currentMonth = 9;
-        this.selectDateKey('2026-10-29');
+        this.currentYear = {{ $todayYear ?? 2026 }};
+        this.currentMonth = {{ $todayMonth ?? 9 }};
+        this.selectDateKey(this.todayDateKey);
     },
 
     getTasksForDate(dateKey) {
@@ -70,7 +71,7 @@
                 dayNumber: d,
                 dateKey: dateKey,
                 isCurrentMonth: false,
-                isToday: dateKey === '2026-10-29',
+                isToday: dateKey === this.todayDateKey,
                 tasks: this.getTasksForDate(dateKey)
             });
         }
@@ -83,7 +84,7 @@
                 dayNumber: d,
                 dateKey: dateKey,
                 isCurrentMonth: true,
-                isToday: dateKey === '2026-10-29',
+                isToday: dateKey === this.todayDateKey,
                 tasks: this.getTasksForDate(dateKey)
             });
         }
@@ -99,7 +100,7 @@
                 dayNumber: d,
                 dateKey: dateKey,
                 isCurrentMonth: false,
-                isToday: dateKey === '2026-10-29',
+                isToday: dateKey === this.todayDateKey,
                 tasks: this.getTasksForDate(dateKey)
             });
         }
@@ -323,7 +324,7 @@
                         <button type="button" @click="goToToday()" 
                                 class="px-3 py-1.5 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 text-xs font-black transition cursor-pointer flex items-center gap-1.5">
                             <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                            <span>Hari Ini (29 Okt)</span>
+                            <span>Hari Ini ({{ $todayButtonLabel ?? 'Hari Ini' }})</span>
                         </button>
                         <button type="button" @click="openAddTaskOnDate(selectedDateKey)" 
                                 class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white text-xs font-black shadow-glow transition cursor-pointer flex items-center gap-1.5">
@@ -427,7 +428,7 @@
                         <span>Timetable Belajar Mingguan (Sesi Malam 19:00 - 22:00)</span>
                     </h2>
                     <span class="text-xs font-bold text-purple-600 bg-purple-50 px-3 py-1 rounded-xl border border-purple-200/60">
-                        Oct 26 - Nov 1, 2026
+                        {{ $selectedDateRange ?? 'Oct 26 - Nov 1, 2026' }}
                     </span>
                 </div>
 

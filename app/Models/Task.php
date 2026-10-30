@@ -21,12 +21,11 @@ class Task extends Model
         'status',
         'subtasks',
         'assigned_day',
-        'assigned_time'
+        'assigned_time',
     ];
 
     protected $casts = [
         'subtasks' => 'array',
-        'priority_score' => 'integer'
+        'priority_score' => 'integer',
     ];
 }
-

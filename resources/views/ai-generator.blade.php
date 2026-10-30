@@ -3,10 +3,27 @@
 @section('title', 'SmartStudy - PPT Study AI')
 
 @section('content')
-<div class="p-8 space-y-6 max-w-7xl mx-auto" x-data="{
+@php
+    $quizData = $currentMaterial->data['quiz'] ?? [];
+    $cardsData = $currentMaterial->data['flashcards'] ?? [];
+    $totalQuestions = count($quizData);
+    $totalCards = count($cardsData);
+@endphp
+<div class="p-8 space-y-6 max-w-7xl mx-auto" 
+     @keydown.window="if ('{{ $activeMode }}' === 'flashcards' && !uploadModal) { 
+         if ($event.code === 'Space') { 
+             $event.preventDefault(); 
+             flipCard(); 
+         } else if ($event.key === 'ArrowRight') { 
+             nextCard(); 
+         } else if ($event.key === 'ArrowLeft') { 
+             prevCard(); 
+         } 
+     }"
+     x-data="{
     activeTab: '{{ $activeMode }}',
     uploadModal: false,
-    selectedTopic: '{{ $currentMaterial ? $currentMaterial->title : '' }}',
+    selectedTopic: '{{ $currentMaterial ? addslashes($currentMaterial->title) : '' }}',
     selectedMode: '{{ $activeMode }}',
     isProcessing: false,
     processingStep: 'Membaca slide presentasi...',
@@ -15,27 +32,60 @@
     currentQuestion: 0,
     userAnswers: {},
     quizSubmitted: false,
+    totalQuestions: {{ $totalQuestions > 0 ? $totalQuestions : 4 }},
+    correctAnswersCount: 0,
     score: 0,
     selectAnswer(qIndex, optIndex, isCorrect) {
         if (this.userAnswers[qIndex] !== undefined) return;
         this.userAnswers[qIndex] = optIndex;
         if (isCorrect) {
-            this.score += 25;
+            this.correctAnswersCount++;
         }
+        const total = this.totalQuestions > 0 ? this.totalQuestions : 1;
+        this.score = Math.round((this.correctAnswersCount / total) * 100);
     },
     resetQuiz() {
         this.currentQuestion = 0;
         this.userAnswers = {};
         this.quizSubmitted = false;
+        this.correctAnswersCount = 0;
         this.score = 0;
     },
 
-    // Flashcard State
+    // 3D Flashcard State
     currentCard: 0,
     cardFlipped: false,
+    totalCards: {{ $totalCards > 0 ? $totalCards : 6 }},
     masteredCards: [],
     flipCard() {
         this.cardFlipped = !this.cardFlipped;
+    },
+    nextCard() {
+        if (this.currentCard < this.totalCards - 1) {
+            this.cardFlipped = false;
+            setTimeout(() => {
+                this.currentCard++;
+                this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            }, 120);
+        }
+    },
+    prevCard() {
+        if (this.currentCard > 0) {
+            this.cardFlipped = false;
+            setTimeout(() => {
+                this.currentCard--;
+                this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            }, 120);
+        }
+    },
+    goToCard(idx) {
+        if (idx >= 0 && idx < this.totalCards) {
+            this.cardFlipped = false;
+            setTimeout(() => {
+                this.currentCard = idx;
+                this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            }, 120);
+        }
     },
     toggleMastered(idx) {
         if (this.masteredCards.includes(idx)) {
@@ -269,8 +319,8 @@
                                                     ? 'bg-rose-50 text-rose-800 border-rose-300'
                                                     : 'bg-slate-50/50 text-slate-400 border-slate-200 opacity-60'))
                                     ">
-                                <div class="flex items-center gap-2.5 min-w-0">
-                                    <span class="w-5 h-5 rounded-lg text-[10px] font-black flex items-center justify-center shrink-0"
+                                <div class="flex items-start gap-2.5 min-w-0 flex-1">
+                                    <span class="w-5 h-5 rounded-lg text-[10px] font-black flex items-center justify-center shrink-0 mt-0.5"
                                           :class="
                                             userAnswers[{{ $qIdx }}] === undefined
                                                 ? 'bg-white text-slate-600 border border-slate-200'
@@ -282,7 +332,7 @@
                                           ">
                                         {{ chr(65 + $optIdx) }}
                                     </span>
-                                    <span class="truncate">{{ $optText }}</span>
+                                    <span class="break-words leading-relaxed text-left flex-1">{{ $optText }}</span>
                                 </div>
                                 <template x-if="userAnswers[{{ $qIdx }}] !== undefined && {{ $optIdx }} === {{ $q['correct'] }}">
                                     <i data-lucide="check" class="w-4 h-4 text-emerald-600 shrink-0"></i>
@@ -316,107 +366,269 @@
 
     <!-- ================= MODE 2: FLASHCARD 3D ================= -->
     @if($activeMode === 'flashcards')
-    @php
-        $cardsData = $currentMaterial->data['flashcards'] ?? [];
-        $totalCards = count($cardsData);
-    @endphp
+    <style>
+        /* 3D Flashcard Perspective Container */
+        .flashcard-stage {
+            perspective: 1400px;
+            -webkit-perspective: 1400px;
+        }
+
+        /* 3D Rotating Flipper */
+        .flashcard-flipper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transform-style: preserve-3d;
+            -webkit-transform-style: preserve-3d;
+            transition: transform 0.65s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .flashcard-flipper.is-flipped {
+            transform: rotateY(180deg);
+            -webkit-transform: rotateY(180deg);
+        }
+
+        /* Flashcard Sides (Front & Back) */
+        .flashcard-face {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+            transform-style: preserve-3d;
+            -webkit-transform-style: preserve-3d;
+            border-radius: 1.5rem;
+        }
+
+        .flashcard-front {
+            transform: rotateY(0deg) translateZ(1px);
+            -webkit-transform: rotateY(0deg) translateZ(1px);
+            z-index: 2;
+        }
+
+        .flashcard-back {
+            transform: rotateY(180deg) translateZ(1px);
+            -webkit-transform: rotateY(180deg) translateZ(1px);
+            z-index: 1;
+        }
+
+        /* Mid-turn visibility toggle ensuring answers always reveal reliably across all browsers */
+        .flashcard-flipper.is-flipped .flashcard-front {
+            visibility: hidden;
+            transition: visibility 0s linear 0.3s;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .flashcard-flipper:not(.is-flipped) .flashcard-front {
+            visibility: visible;
+            transition: visibility 0s linear 0.3s;
+            pointer-events: auto;
+            z-index: 2;
+        }
+
+        .flashcard-flipper.is-flipped .flashcard-back {
+            visibility: visible;
+            transition: visibility 0s linear 0.3s;
+            pointer-events: auto;
+            z-index: 2;
+        }
+
+        .flashcard-flipper:not(.is-flipped) .flashcard-back {
+            visibility: hidden;
+            transition: visibility 0s linear 0.3s;
+            pointer-events: none;
+            z-index: 1;
+        }
+    </style>
     <div class="bg-white border border-slate-200/80 rounded-3xl p-6 sm:p-7 shadow-card space-y-6">
+        <!-- Flashcard Header & Progress -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
             <div>
                 <h3 class="text-base font-black text-slate-900 flex items-center gap-2">
-                    <span class="p-1 rounded-lg bg-purple-50 text-purple-600">
+                    <span class="p-1 rounded-lg bg-gradient-to-tr from-pink-500 to-purple-600 text-white shadow-xs">
                         <i data-lucide="layers" class="w-4 h-4"></i>
                     </span>
-                    <span>Kartu Flashcard Digital (Active Recall)</span>
+                    <span>Flashcard 3D Digital (Active Recall)</span>
                 </h3>
-                <p class="text-xs font-semibold text-slate-500 mt-0.5">Klik kartu untuk membalik dan melihat jawaban/penjelasan konsep penting.</p>
+                <p class="text-xs font-semibold text-slate-500 mt-0.5">
+                    Kartu belajar 3D interaktif. Klik kartu atau gunakan keyboard untuk membalik kartu dan menguji hafalan.
+                </p>
             </div>
 
-            <!-- Mastered Counter -->
+            <!-- Mastered Progress Pill -->
             <div class="flex items-center gap-3">
-                <span class="text-xs font-bold text-slate-600">Dikuasai:</span>
-                <span class="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-black"
-                      x-text="masteredCards.length + ' / {{ $totalCards }}'"></span>
+                <div class="flex flex-col items-end">
+                    <span class="text-[11px] font-bold text-slate-500">
+                        Dikuasai: <strong class="text-emerald-600" x-text="masteredCards.length + ' / ' + totalCards"></strong>
+                    </span>
+                    <div class="w-28 h-2 bg-slate-100 rounded-full overflow-hidden mt-1 border border-slate-200/70">
+                        <div class="h-full bg-gradient-to-r from-emerald-400 to-teal-500 transition-all duration-300"
+                             :style="'width: ' + (totalCards > 0 ? (masteredCards.length / totalCards) * 100 : 0) + '%'"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- 3D Flip Flashcard Display Area -->
-        <div class="max-w-xl mx-auto my-4">
+        <!-- 3D Flashcard Stage Area -->
+        <div class="max-w-xl mx-auto my-3 flashcard-stage">
             @foreach($cardsData as $cIdx => $c)
-            <div x-show="currentCard === {{ $cIdx }}" class="space-y-4">
-                <!-- Interactive 3D Card Container -->
+            <div x-show="currentCard === {{ $cIdx }}" class="space-y-5">
+                
+                <!-- 3D Perspective Card Wrapper -->
                 <div @click="flipCard()" 
-                     class="min-h-[260px] sm:min-h-[290px] w-full rounded-3xl p-7 text-center flex flex-col justify-between cursor-pointer transition-all duration-300 transform select-none shadow-card hover:shadow-xl border"
-                     :class="cardFlipped 
-                        ? 'bg-gradient-to-br from-purple-50 via-pink-50 to-white border-purple-300 scale-[1.01]' 
-                        : 'bg-gradient-to-br from-white via-slate-50/50 to-purple-50/30 border-slate-200 hover:border-purple-300'">
+                     class="relative w-full h-[290px] sm:h-[320px] cursor-pointer select-none group flashcard-stage">
                     
-                    <!-- Top Bar of Card -->
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="px-2.5 py-0.5 rounded-md font-black uppercase tracking-wider text-[10px] bg-white border border-slate-200 text-purple-700 shadow-2xs">
-                            {{ $c['badge'] ?? 'Konsep' }}
-                        </span>
-                        <span class="text-[11px] font-bold text-slate-400">
-                            Kartu {{ $cIdx + 1 }} dari {{ $totalCards }}
-                        </span>
-                    </div>
+                    <!-- Flipper Container (Performs 3D Rotation) -->
+                    <div class="flashcard-flipper rounded-3xl shadow-card hover:shadow-xl"
+                         :class="cardFlipped ? 'is-flipped' : ''">
+                        
+                        <!-- 1. FRONT FACE (Pertanyaan / Konsep) -->
+                        <div class="flashcard-face flashcard-front rounded-3xl p-6 sm:p-7 text-center flex flex-col justify-between bg-gradient-to-br from-white via-slate-50/70 to-purple-50/40 border-2 border-slate-200/90 shadow-card group-hover:border-purple-300 transition-colors">
+                            
+                            <!-- Top Bar Front -->
+                            <div class="flex items-center justify-between text-xs">
+                                <span class="px-2.5 py-1 rounded-xl font-black uppercase tracking-wider text-[10px] bg-purple-50 border border-purple-200 text-purple-700 shadow-2xs">
+                                    {{ $c['badge'] ?? 'Konsep' }}
+                                </span>
+                                <div class="flex items-center gap-2">
+                                    <template x-if="masteredCards.includes({{ $cIdx }})">
+                                        <span class="inline-flex items-center gap-1 text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
+                                            <i data-lucide="check" class="w-3 h-3"></i> Paham
+                                        </span>
+                                    </template>
+                                    <span class="text-[11px] font-bold text-slate-400">
+                                        {{ $cIdx + 1 }} / {{ $totalCards }}
+                                    </span>
+                                </div>
+                            </div>
 
-                    <!-- Center Body -->
-                    <div class="my-auto py-6">
-                        <template x-if="!cardFlipped">
-                            <div>
-                                <p class="text-[11px] font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600 uppercase tracking-widest mb-2">Pertanyaan / Istilah:</p>
-                                <h4 class="text-xl sm:text-2xl font-black text-slate-900 leading-snug">
+                            <!-- Center Body Front -->
+                            <div class="my-auto py-3 px-2">
+                                <span class="inline-block text-[11px] font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600 uppercase tracking-widest mb-2">
+                                    🔍 Istilah / Pertanyaan:
+                                </span>
+                                <h4 class="text-lg sm:text-2xl font-black text-slate-900 leading-snug">
                                     {{ $c['front'] }}
                                 </h4>
                             </div>
-                        </template>
 
-                        <template x-if="cardFlipped">
-                            <div>
-                                <p class="text-[11px] font-black text-purple-700 uppercase tracking-widest mb-2">Definisi / Penjelasan:</p>
-                                <p class="text-sm sm:text-base font-bold text-slate-800 leading-relaxed max-w-md mx-auto">
+                            <!-- Bottom Hint Front -->
+                            <div class="text-[11px] font-bold text-slate-400 flex items-center justify-center gap-2 pt-2 border-t border-slate-100">
+                                <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-purple-500"></i>
+                                <span>Klik kartu atau tekan <kbd class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] border border-slate-200 shadow-2xs">Spasi</kbd> untuk membalik</span>
+                            </div>
+                        </div>
+
+                        <!-- 2. BACK FACE (Jawaban / Penjelasan) -->
+                        <div class="flashcard-face flashcard-back rounded-3xl p-6 sm:p-7 text-center flex flex-col justify-between bg-gradient-to-br from-emerald-50/60 via-purple-50/30 to-white border-2 border-emerald-400/90 shadow-xl transition-colors">
+                            
+                            <!-- Top Bar Back -->
+                            <div class="flex items-center justify-between text-xs">
+                                <span class="px-2.5 py-1 rounded-xl font-black uppercase tracking-wider text-[10px] bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-2xs flex items-center gap-1">
+                                    <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i>
+                                    <span>Kunci Jawaban</span>
+                                </span>
+                                <span class="text-[11px] font-bold text-emerald-700">
+                                    {{ $cIdx + 1 }} / {{ $totalCards }}
+                                </span>
+                            </div>
+
+                            <!-- Center Body Back -->
+                            <div class="my-auto py-2 px-3 overflow-y-auto max-h-[170px]">
+                                <span class="inline-flex items-center gap-1 text-[11px] font-black text-emerald-700 uppercase tracking-widest mb-1.5">
+                                    <i data-lucide="lightbulb" class="w-3.5 h-3.5 text-amber-500"></i>
+                                    <span>Jawaban & Pembahasan:</span>
+                                </span>
+                                <p class="text-xs sm:text-sm font-bold text-slate-900 leading-relaxed max-w-md mx-auto">
                                     {{ $c['back'] }}
                                 </p>
                             </div>
-                        </template>
-                    </div>
 
-                    <!-- Bottom Hint -->
-                    <div class="text-[11px] font-bold text-slate-400 flex items-center justify-center gap-1.5">
-                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-purple-500"></i>
-                        <span x-text="cardFlipped ? 'Klik untuk membalik ke pertanyaan' : 'Klik kartu untuk membalik melihat jawaban'"></span>
+                            <!-- Bottom Hint Back -->
+                            <div class="text-[11px] font-bold text-emerald-600 flex items-center justify-center gap-2 pt-2 border-t border-emerald-200/60">
+                                <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-teal-500"></i>
+                                <span>Klik kartu atau tekan <kbd class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-mono text-[10px] border border-emerald-200 shadow-2xs">Spasi</kbd> untuk kembali ke soal</span>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 
-                <!-- Bottom Controls (Next, Prev, Mastered) -->
-                <div class="flex items-center justify-between gap-3 pt-2">
+                <!-- Navigation Dots Indicator -->
+                <div class="flex items-center justify-center gap-2 py-1">
+                    @foreach($cardsData as $dIdx => $dCard)
                     <button type="button" 
-                            @click="cardFlipped = false; currentCard = Math.max(0, currentCard - 1)"
+                            @click="goToCard({{ $dIdx }})"
+                            class="h-2 rounded-full transition-all cursor-pointer"
+                            :class="currentCard === {{ $dIdx }} 
+                                ? 'w-6 bg-gradient-to-r from-pink-500 to-purple-600 shadow-2xs' 
+                                : (masteredCards.includes({{ $dIdx }}) ? 'w-2 bg-emerald-400' : 'w-2 bg-slate-200 hover:bg-slate-300')"
+                            title="Buka Kartu {{ $dIdx + 1 }}">
+                    </button>
+                    @endforeach
+                </div>
+
+                <!-- Bottom Controls (Prev, Flip, Master, Next) -->
+                <div class="flex items-center justify-between gap-2.5 pt-1">
+                    <button type="button" 
+                            @click="prevCard()"
                             :disabled="currentCard === 0"
-                            class="px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition">
+                            class="px-3.5 sm:px-4 py-2.5 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition shadow-2xs cursor-pointer">
                         <i data-lucide="chevron-left" class="w-4 h-4"></i>
-                        <span>Sebelumnya</span>
+                        <span class="hidden sm:inline">Sebelumnya</span>
                     </button>
 
-                    <button type="button"
-                            @click="toggleMastered({{ $cIdx }})"
-                            class="px-4 py-2.5 rounded-xl border text-xs font-black transition flex items-center gap-1.5"
-                            :class="masteredCards.includes({{ $cIdx }}) 
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
-                                : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300'">
-                        <i data-lucide="star" class="w-4 h-4" :class="masteredCards.includes({{ $cIdx }}) ? 'fill-emerald-500 text-emerald-500' : ''"></i>
-                        <span x-text="masteredCards.includes({{ $cIdx }}) ? 'Sudah Paham' : 'Tandai Paham'"></span>
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <!-- Manual Flip Button -->
+                        <button type="button" 
+                                @click="flipCard()"
+                                class="px-3.5 py-2.5 rounded-2xl border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100 text-xs font-bold flex items-center gap-1.5 transition shadow-2xs cursor-pointer">
+                            <i data-lucide="rotate-3d" class="w-4 h-4"></i>
+                            <span x-text="cardFlipped ? 'Lihat Soal' : 'Buka Jawaban (3D)'"></span>
+                        </button>
+
+                        <!-- Mastered Star Button -->
+                        <button type="button"
+                                @click="toggleMastered({{ $cIdx }})"
+                                class="px-3.5 py-2.5 rounded-2xl border text-xs font-black transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                                :class="masteredCards.includes({{ $cIdx }}) 
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-100' 
+                                    : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300'">
+                            <i data-lucide="star" class="w-4 h-4" :class="masteredCards.includes({{ $cIdx }}) ? 'fill-emerald-500 text-emerald-500' : ''"></i>
+                            <span x-text="masteredCards.includes({{ $cIdx }}) ? 'Dikuasai' : 'Tandai Paham'"></span>
+                        </button>
+                    </div>
 
                     <button type="button" 
-                            @click="cardFlipped = false; currentCard = Math.min({{ $totalCards - 1 }}, currentCard + 1)"
+                            @click="nextCard()"
                             :disabled="currentCard === {{ $totalCards - 1 }}"
-                            class="px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition">
-                        <span>Selanjutnya</span>
+                            class="px-3.5 sm:px-4 py-2.5 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition shadow-2xs cursor-pointer">
+                        <span class="hidden sm:inline">Selanjutnya</span>
                         <i data-lucide="chevron-right" class="w-4 h-4"></i>
                     </button>
                 </div>
+
+                <!-- Keyboard Hint Footer -->
+                <div class="text-center pt-2 text-[11px] text-slate-400 font-medium">
+                    <span>💡 Shortcut: </span>
+                    <kbd class="px-1 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-mono border">Spasi</kbd> Balik Kartu • 
+                    <kbd class="px-1 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-mono border">←</kbd> Sebelumnya • 
+                    <kbd class="px-1 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-mono border">→</kbd> Selanjutnya
+                </div>
+
+                <!-- Completion Celebratory Banner -->
+                <div x-show="masteredCards.length === totalCards && totalCards > 0" 
+                     x-transition 
+                     class="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 text-center space-y-1">
+                    <p class="text-xs font-black text-emerald-900 flex items-center justify-center gap-1.5">
+                        <span>🎉 Luar Biasa!</span>
+                        <span>Anda telah menandai paham seluruh kartu flashcard ini!</span>
+                    </p>
+                    <p class="text-[11px] text-emerald-700 font-medium">Lanjutkan ke Kuis Interaktif untuk menguji pemahaman Anda di bawah tekanan ujian.</p>
+                </div>
+
             </div>
             @endforeach
         </div>

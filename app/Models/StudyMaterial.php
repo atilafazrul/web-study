@@ -12,11 +12,11 @@ class StudyMaterial extends Model
         'file_size',
         'slides_count',
         'mode',
-        'data'
+        'data',
     ];
 
     protected $casts = [
         'data' => 'array',
-        'slides_count' => 'integer'
+        'slides_count' => 'integer',
     ];
 }

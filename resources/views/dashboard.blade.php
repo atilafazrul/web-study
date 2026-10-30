@@ -778,9 +778,16 @@
                         <tr>
                             <th class="p-2 text-left text-xs font-bold text-slate-400 w-36"></th>
                             @foreach($weeklySchedule['days'] as $day)
-                            <th class="p-2 text-xs font-semibold text-slate-500">
-                                <span class="block text-slate-400 font-medium">{{ $day['name'] }}</span>
-                                <span class="block font-black text-slate-800">{{ $day['date'] }}</span>
+                            <th class="p-2 text-xs font-semibold text-slate-500 {{ $day['is_today'] ? 'bg-pink-50/60 rounded-t-2xl' : '' }}">
+                                <span class="block font-medium {{ $day['is_today'] ? 'text-pink-600 font-black' : 'text-slate-400' }}">{{ $day['name'] }}</span>
+                                <span class="block font-black {{ $day['is_today'] ? 'text-pink-700' : 'text-slate-800' }}">
+                                    {{ $day['date'] }}
+                                </span>
+                                @if($day['is_today'])
+                                <span class="inline-block text-[9px] font-black uppercase tracking-wider text-pink-600 bg-pink-100 px-1.5 py-0.5 rounded-full mt-0.5">
+                                    Hari Ini
+                                </span>
+                                @endif
                             </th>
                             @endforeach
                         </tr>

@@ -30,7 +30,7 @@ class AppServiceProvider extends ServiceProvider
                         [
                             'name' => 'Student',
                             'email' => 'student@university.edu',
-                            'password' => bcrypt('password123')
+                            'password' => bcrypt('password123'),
                         ]
                     );
                     $view->with('currentUser', $user);

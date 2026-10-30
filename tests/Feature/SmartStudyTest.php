@@ -2,13 +2,17 @@
 
 namespace Tests\Feature;
 
+use App\Models\StudyMaterial;
 use App\Models\Task;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class SmartStudyTest extends TestCase
 {
     use RefreshDatabase;
+
     public function test_dashboard_screen_loads_successfully(): void
     {
         $response = $this->get('/');
@@ -31,13 +35,13 @@ class SmartStudyTest extends TestCase
         $response = $this->post('/tasks', [
             'title' => 'Web Security Penetration Testing Lab',
             'duration' => '4 Hours',
-            'due_date' => 'Nov 5, 2026'
+            'due_date' => 'Nov 5, 2026',
         ]);
 
         $response->assertStatus(302);
-        
+
         $this->assertDatabaseHas('tasks', [
-            'title' => 'Web Security Penetration Testing Lab'
+            'title' => 'Web Security Penetration Testing Lab',
         ]);
     }
 
@@ -47,14 +51,14 @@ class SmartStudyTest extends TestCase
             'title' => 'Mobile App Flutter Project',
             'duration' => '3 Hours',
             'due_date' => 'Nov 10, 2026',
-            'description' => "- Setup project flutter\n- Buat UI login & dashboard\n- Integrasikan API"
+            'description' => "- Setup project flutter\n- Buat UI login & dashboard\n- Integrasikan API",
         ]);
 
         $response->assertStatus(302);
-        
+
         $this->assertDatabaseHas('tasks', [
             'title' => 'Mobile App Flutter Project',
-            'description' => "- Setup project flutter\n- Buat UI login & dashboard\n- Integrasikan API"
+            'description' => "- Setup project flutter\n- Buat UI login & dashboard\n- Integrasikan API",
         ]);
     }
 
@@ -64,7 +68,7 @@ class SmartStudyTest extends TestCase
             'title' => 'OOP Java Assignment',
             'duration' => '3h',
             'priority' => 'High',
-            'status' => 'pending'
+            'status' => 'pending',
         ]);
 
         $response = $this->post("/tasks/{$task->id}/toggle");
@@ -101,13 +105,13 @@ class SmartStudyTest extends TestCase
     {
         $response = $this->post('/settings', [
             'name' => 'Atila Pratama',
-            'email' => 'atila@example.com'
+            'email' => 'atila@example.com',
         ]);
 
         $response->assertStatus(302);
         $this->assertDatabaseHas('users', [
             'name' => 'Atila Pratama',
-            'email' => 'atila@example.com'
+            'email' => 'atila@example.com',
         ]);
     }
 
@@ -127,51 +131,51 @@ class SmartStudyTest extends TestCase
         $response = $this->post('/ai-generator', [
             'title' => 'Kecerdasan Buatan dan Deep Learning',
             'mode' => 'quiz',
-            'preset_topic' => 'Kecerdasan Buatan: Dasar Machine Learning'
+            'preset_topic' => 'Kecerdasan Buatan: Dasar Machine Learning',
         ]);
 
         $response->assertStatus(302);
         $this->assertDatabaseHas('study_materials', [
-            'mode' => 'quiz'
+            'mode' => 'quiz',
         ]);
     }
 
     public function test_can_upload_presentation_file_directly(): void
     {
-        \Illuminate\Support\Facades\Storage::fake('local');
-        $file = \Illuminate\Http\UploadedFile::fake()->create('kuliah_ai.pptx', 2048, 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+        Storage::fake('local');
+        $file = UploadedFile::fake()->create('kuliah_ai.pptx', 2048, 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
 
         $response = $this->post('/ai-generator', [
             'mode' => 'flashcards',
-            'presentation_file' => $file
+            'presentation_file' => $file,
         ]);
 
         $response->assertStatus(302);
         $this->assertDatabaseHas('study_materials', [
             'filename' => 'kuliah_ai.pptx',
-            'mode' => 'flashcards'
+            'mode' => 'flashcards',
         ]);
     }
 
     public function test_can_delete_study_material(): void
     {
-        $material = \App\Models\StudyMaterial::create([
+        $material = StudyMaterial::create([
             'title' => 'Materi Temporary',
             'filename' => 'temp.pptx',
             'mode' => 'summary',
-            'data' => []
+            'data' => [],
         ]);
 
         $response = $this->delete("/ai-generator/{$material->id}");
         $response->assertStatus(302);
         $this->assertDatabaseMissing('study_materials', [
-            'id' => $material->id
+            'id' => $material->id,
         ]);
     }
 
     public function test_can_refresh_quiz_with_new_questions(): void
     {
-        $material = \App\Models\StudyMaterial::create([
+        $material = StudyMaterial::create([
             'title' => 'Test Materi Quiz',
             'filename' => 'test.pptx',
             'mode' => 'quiz',
@@ -181,16 +185,16 @@ class SmartStudyTest extends TestCase
                         'question' => 'Soal 1',
                         'options' => ['A', 'B', 'C', 'D'],
                         'correct' => 0,
-                        'explanation' => 'Penjelasan 1'
+                        'explanation' => 'Penjelasan 1',
                     ],
                     [
                         'question' => 'Soal 2',
                         'options' => ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
                         'correct' => 1,
-                        'explanation' => 'Penjelasan 2'
-                    ]
-                ]
-            ]
+                        'explanation' => 'Penjelasan 2',
+                    ],
+                ],
+            ],
         ]);
 
         $response = $this->post("/ai-generator/{$material->id}/refresh-quiz");
@@ -204,7 +208,7 @@ class SmartStudyTest extends TestCase
     public function test_ai_chat_answers_schedule_question()
     {
         $response = $this->postJson('/ai-chat', [
-            'message' => 'ada jadwal apa hari ini'
+            'message' => 'ada jadwal apa hari ini',
         ]);
 
         $response->assertStatus(200);
@@ -216,7 +220,7 @@ class SmartStudyTest extends TestCase
     public function test_ai_chat_handles_empty_message()
     {
         $response = $this->postJson('/ai-chat', [
-            'message' => ''
+            'message' => '',
         ]);
 
         $response->assertStatus(200);
@@ -226,7 +230,7 @@ class SmartStudyTest extends TestCase
     public function test_ai_chat_answers_academic_question()
     {
         $response = $this->postJson('/ai-chat', [
-            'message' => 'Bantu jelaskan konsep OOP dan binary search di Java'
+            'message' => 'Bantu jelaskan konsep OOP dan binary search di Java',
         ]);
 
         $response->assertStatus(200);

@@ -3,6 +3,7 @@ import os
 import json
 import re
 import random
+import urllib.request
 
 if sys.platform == 'win32':
     try:
@@ -61,12 +62,25 @@ def extract_title_and_subject(filename, slides):
     # 1. Check slide 1 lines
     if slides and len(slides) > 0:
         lines = slides[0].get('lines', [])
+        course_code = None
+        topic_title = None
         for line in lines:
             m = re.match(r'^(0\d|\d{1,2})\s+(.+)$', line.strip())
             if m:
                 week_num = int(m.group(1))
                 topic = m.group(2).strip().replace('“', '"').replace('”', '"')
                 return f"IF640-W{week_num:02d}: {topic}"
+            cm = re.search(r'\b([A-Z]{2,4}\s*\d{3,4})\b', line.strip())
+            if cm and not course_code:
+                course_code = cm.group(1).replace(' ', '')
+            if len(line.strip()) > 8 and not re.search(r'universitas|program studi|fakultas', line.strip(), re.I):
+                if not topic_title:
+                    topic_title = line.strip()
+
+        if course_code and topic_title:
+            return f"{course_code}: {topic_title}"
+        elif topic_title:
+            return topic_title
 
     # 2. Check filename pattern like Materi IF640-W06-Social Engineering (1).pdf
     base = os.path.splitext(filename)[0]
@@ -78,11 +92,132 @@ def extract_title_and_subject(filename, slides):
         return f"IF640-W{week_num:02d}: {topic}"
 
     # 3. Clean filename fallback
+    if base.startswith('upload_') and slides and len(slides) > 0:
+        for line in slides[0].get('lines', []):
+            if len(line.strip()) > 5 and not re.search(r'universitas|fakultas|prodi', line.strip(), re.I):
+                return line.strip()
+
     clean = re.sub(r'^Materi\s*', '', base, flags=re.IGNORECASE)
     clean = re.sub(r'_odd\d+', '', clean, flags=re.IGNORECASE)
     clean = re.sub(r'\s*\(\d+\)$', '', clean)
     clean = re.sub(r'[-_]', ' ', clean).strip()
     return clean if clean else filename
+
+def get_env_gemini_key():
+    env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env')
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.startswith('GEMINI_API_KEY='):
+                        val = line.split('=', 1)[1].strip()
+                        return val.strip('"').strip("'")
+        except Exception:
+            pass
+    return os.environ.get('GEMINI_API_KEY', '')
+
+def generate_with_gemini(slides, doc_title, gemini_key, is_refresh_quiz=False):
+    if not gemini_key:
+        return None
+    try:
+        sample_texts = []
+        for s in slides[:40]:
+            lines = [x.strip() for x in s.get('lines', []) if len(x.strip()) > 3]
+            if lines:
+                sample_texts.append(f"[Slide {s['slide_num']}] " + " | ".join(lines[:6]))
+        content_context = "\n".join(sample_texts[:30])
+
+        prompt = f"""Kamu adalah Profesor & Dosen Penguji Ujian di universitas terkemuka.
+Berikut adalah teks ringkasan materi slide presentasi kuliah (judul awal: '{doc_title}'):
+---
+{content_context}
+---
+
+TUGAS UTAMA:
+1. "title": Buat judul materi perkuliahan yang sangat rapi, profesional, dan mencerminkan kode mata kuliah dan topik utama slide jika ada (misal: "AI706: Pengantar Lanskap AI Tools & Penggunaan yang Bertanggung Jawab").
+2. "quiz": Buat 4 hingga 5 soal Kuis Pilihan Ganda (Interactive Quiz) yang SANGAT BERKUALITAS TINGGI, menantang, akademis, dan menguji pemahaman konseptual (Active Recall & Critical Thinking).
+   - JANGAN membuat soal dangkal atau menaruh judul slide/frasa mentah sebagai pilihan jawaban!
+   - Setiap soal wajib memiliki:
+     * "question": Pertanyaan jelas dan kontekstual.
+     * "options": Array berisi tepat 4 pilihan jawaban yang masuk akal dan gramatikal rapi.
+     * "correct": Indeks opsi jawaban yang benar (0, 1, 2, atau 3).
+     * "explanation": Penjelasan akademis mendalam mengapa pilihan itu benar dan mengapa pilihan lain keliru.
+3. "flashcards": Buat 6 Kartu Flashcard 3D (Active Recall) yang menanyakan konsep esensial pada 'front' dan penjabaran definisi/prinsip lengkap pada 'back' dengan 'badge' kategori.
+4. "summary":
+   - "executive_summary": Ringkasan eksekutif padat dan komprehensif.
+   - "key_takeaways": Array 4-6 poin kunci esensial.
+   - "cheat_sheet": Array 4 baris tabel (layer, unit, protocols, hardware).
+   - "exam_tips": Array 3 tips strategis menjawab soal ujian materi ini.
+
+Format Output WAJIB JSON murni tanpa markdown:
+{{
+  "title": "...",
+  "quiz": [
+    {{
+      "question": "...",
+      "options": ["A", "B", "C", "D"],
+      "correct": 0,
+      "explanation": "..."
+    }}
+  ],
+  "flashcards": [
+    {{
+      "front": "...",
+      "back": "...",
+      "badge": "..."
+    }}
+  ],
+  "summary": {{
+    "executive_summary": "...",
+    "key_takeaways": ["..."],
+    "cheat_sheet": [
+      {{"layer": "...", "unit": "...", "protocols": "...", "hardware": "..."}}
+    ],
+    "exam_tips": ["..."]
+  }}
+}}
+"""
+        models = [
+            'gemini-3.1-flash-lite-preview',
+            'gemini-3-flash-preview',
+            'gemini-2.5-flash',
+            'gemini-flash-latest'
+        ]
+        for m in models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={gemini_key}"
+            payload = {
+                'contents': [{'parts': [{'text': prompt}]}],
+                'generationConfig': {
+                    'temperature': 0.7 if is_refresh_quiz else 0.3,
+                    'maxOutputTokens': 3500
+                }
+            }
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers={'Content-Type': 'application/json'}
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=25) as resp:
+                    if resp.status == 200:
+                        raw = json.loads(resp.read().decode('utf-8'))
+                        if 'candidates' in raw and raw['candidates']:
+                            txt = raw['candidates'][0]['content']['parts'][0]['text'].strip()
+                            if txt.startswith('```json'):
+                                txt = txt[7:]
+                            if txt.startswith('```'):
+                                txt = txt[3:]
+                            if txt.endswith('```'):
+                                txt = txt[:-3]
+                            txt = txt.strip()
+                            data = json.loads(txt)
+                            if data.get('quiz') and len(data['quiz']) >= 3:
+                                return data
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
 
 def shuffle_quiz_options(quiz_list):
     result = []
@@ -99,13 +234,50 @@ def shuffle_quiz_options(quiz_list):
         })
     return result
 
-def analyze_and_generate(file_path, slides):
-    filename = os.path.basename(file_path)
+def analyze_and_generate(file_path, slides, gemini_key='', orig_title='', orig_filename='', is_refresh_quiz=False):
+    filename = orig_filename if orig_filename else os.path.basename(file_path)
     combined_text = ' '.join([s['text'] for s in slides]).lower()
     total_slides = len(slides) if slides else 20
-    doc_title = extract_title_and_subject(filename, slides)
+    doc_title = orig_title if orig_title and not orig_title.startswith('upload_') else extract_title_and_subject(filename, slides)
     dt_lower = doc_title.lower()
     fn_lower = filename.lower()
+    
+    # 0. Try Gemini API first for any presentation (returns world-class custom quiz & flashcards)
+    if not gemini_key:
+        gemini_key = get_env_gemini_key()
+    
+    if gemini_key:
+        gemini_result = generate_with_gemini(slides, doc_title, gemini_key, is_refresh_quiz=is_refresh_quiz)
+        if gemini_result:
+            title_final = gemini_result.get('title') or doc_title
+            # Ensure video structure is present
+            video_data = {
+                'duration': '4:15',
+                'lecturer': 'Dr. Maya AI - Virtual Lecturer',
+                'chapters': [
+                    {'time': '00:00', 'title': f'Pengantar {title_final[:30]}'},
+                    {'time': '01:20', 'title': 'Lanskap & Konsep Utama'},
+                    {'time': '02:45', 'title': 'Etika & Evaluasi Kritis'},
+                    {'time': '03:40', 'title': 'Rangkuman Ujian'}
+                ],
+                'slides': [
+                    {
+                        'slide_num': 1,
+                        'title': title_final,
+                        'subtitle': 'Panduan Belajar Cerdas AI',
+                        'bullet_points': gemini_result.get('summary', {}).get('key_takeaways', ['Pahami konsep inti', 'Evaluasi implementasi'])[:3],
+                        'transcript': f'Halo rekan mahasiswa! Di modul ini kita akan membedah secara mendalam topik {title_final}.'
+                    }
+                ]
+            }
+            return {
+                'title': title_final,
+                'slides_count': total_slides,
+                'summary': gemini_result.get('summary', {}),
+                'quiz': gemini_result.get('quiz', []),
+                'flashcards': gemini_result.get('flashcards', []),
+                'video': video_data
+            }
     
     # 1. Week 05: Physics of Malware
     if 'w05' in dt_lower or 'physics of malware' in dt_lower or 'w05' in fn_lower or 'physics of malware' in fn_lower:
@@ -1074,13 +1246,25 @@ if __name__ == '__main__':
         
     file_path = sys.argv[1]
     refresh_quiz_only = '--refresh-quiz' in sys.argv
+    
+    gemini_key = ''
+    orig_title = ''
+    orig_filename = ''
+    
+    for i, arg in enumerate(sys.argv):
+        if arg == '--gemini-key' and i + 1 < len(sys.argv):
+            gemini_key = sys.argv[i + 1]
+        elif arg == '--title' and i + 1 < len(sys.argv):
+            orig_title = sys.argv[i + 1]
+        elif arg == '--filename' and i + 1 < len(sys.argv):
+            orig_filename = sys.argv[i + 1]
 
     if not os.path.exists(file_path):
         print(json.dumps({'error': f'File not found: {file_path}'}))
         sys.exit(1)
         
     slides = extract_text_from_file(file_path)
-    result = analyze_and_generate(file_path, slides)
+    result = analyze_and_generate(file_path, slides, gemini_key, orig_title, orig_filename, is_refresh_quiz=refresh_quiz_only)
     
     if refresh_quiz_only:
         print(json.dumps({'quiz': result.get('quiz', [])}, ensure_ascii=True))
