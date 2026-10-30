@@ -72,7 +72,7 @@
     </div>
     @endif
 
-    @if(session('error') || $errors->any())
+    @if(session('error') || (!empty($errors) && $errors->any()))
     <div class="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold shadow-xs space-y-1">
         <div class="flex items-center justify-between">
             <div class="flex items-center gap-2 text-rose-900 font-black">
@@ -84,9 +84,11 @@
         @if(session('error'))
             <p>{{ session('error') }}</p>
         @endif
-        @foreach($errors->all() as $err)
-            <p>• {{ $err }}</p>
-        @endforeach
+        @if(!empty($errors))
+            @foreach($errors->all() as $err)
+                <p>• {{ $err }}</p>
+            @endforeach
+        @endif
     </div>
     @endif
 

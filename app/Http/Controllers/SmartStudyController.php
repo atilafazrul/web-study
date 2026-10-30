@@ -14,8 +14,12 @@ class SmartStudyController extends Controller
      */
     private function ensureInitialTasks()
     {
-        if (Task::count() === 0) {
-            (new \Database\Seeders\DatabaseSeeder())->run();
+        try {
+            if (Task::count() === 0) {
+                (new \Database\Seeders\DatabaseSeeder())->run();
+            }
+        } catch (\Exception $e) {
+            \Log::warning('Database initial tasks check: ' . $e->getMessage());
         }
     }
 
@@ -110,9 +114,11 @@ class SmartStudyController extends Controller
                 ];
             }
 
+            $isToday = ($d === date('D')) || ($dateLabels[$idx] === date('M j'));
             $scheduleDays[] = [
                 'name' => $d,
                 'date' => $dateLabels[$idx],
+                'is_today' => $isToday,
                 'evening' => $evening
             ];
         }
