@@ -813,6 +813,8 @@ class SmartStudyController extends Controller
      */
     public function processAIGenerator(Request $request)
     {
+        set_time_limit(120);
+
         $validated = $request->validate([
             'title' => 'nullable|string|max:255',
             'mode' => 'required|string|in:quiz,flashcards,summary',
@@ -834,10 +836,10 @@ class SmartStudyController extends Controller
 
             // Derive clean, distinct presentation title
             $cleanTitle = pathinfo($filename, PATHINFO_FILENAME);
-            if (preg_match('/IF640[-_\s]*W0?(\d+)[-_\s]*(.+?)(?:_odd\d+|\s*\(\d+\))?$/i', $cleanTitle, $m)) {
-                $cleanTitle = 'IF640-W' . sprintf('%02d', (int)$m[1]) . ': ' . trim($m[2]);
-            } elseif (preg_match('/IF676[-_\s]*W?0?(\d+)[-_\s]*(.+?)(?:_odd\d+|\s*\(\d+\))?$/i', $cleanTitle, $m)) {
-                $cleanTitle = 'IF676-W' . sprintf('%02d', (int)$m[1]) . ': ' . trim($m[2]);
+            if (preg_match('/([A-Z]{2}\d{3})[-_\s]*W?0?(\d+)[-_\s]*(.+?)(?:_odd\d+|\s*\(\d+\))?$/i', $cleanTitle, $m)) {
+                $cleanTitle = strtoupper($m[1]) . '-W' . sprintf('%02d', (int)$m[2]) . ': ' . trim($m[3]);
+            } elseif (preg_match('/([A-Z]{2}\d{3})[-_\s]+([A-Za-z\s]+?)(?:[-_\s]+(?:MidTerm|UTS|UAS|Final|W\d+|\d{4}))?$/i', $cleanTitle, $m)) {
+                $cleanTitle = strtoupper($m[1]) . ': ' . trim($m[2]);
             } else {
                 $cleanTitle = preg_replace('/^Materi\s*/i', '', $cleanTitle);
                 $cleanTitle = preg_replace('/_odd\d+/i', '', $cleanTitle);
@@ -845,7 +847,7 @@ class SmartStudyController extends Controller
                 $cleanTitle = ucwords(str_replace(['_', '-'], ' ', trim($cleanTitle)));
             }
 
-            if (empty($title) || $title === $filename) {
+            if (empty($title) || $title === $filename || preg_match('/^upload[_\s]?\d+/i', $title)) {
                 $title = $cleanTitle;
             }
 
@@ -869,24 +871,16 @@ class SmartStudyController extends Controller
                 $script = app_path('Services/extract_and_generate.py');
                 if (file_exists($script) && file_exists($fullPath)) {
                     $cmd = 'python ' . escapeshellarg($script) . ' ' . escapeshellarg($fullPath);
-                    if (!empty($cleanTitle) && !preg_match('/^upload[_\s]?\d+/i', $cleanTitle)) {
-                        $cmd .= ' --original-title ' . escapeshellarg($cleanTitle);
-                    }
                     $output = shell_exec($cmd);
                     if ($output) {
-                        $startPos = strpos($output, '{');
-                        $endPos = strrpos($output, '}');
-                        if ($startPos !== false && $endPos !== false && $endPos > $startPos) {
-                            $jsonStr = substr($output, $startPos, $endPos - $startPos + 1);
-                            $parsed = json_decode($jsonStr, true);
-                            if (!empty($parsed) && isset($parsed['summary'])) {
-                                $extractedData = $parsed;
-                                if (!empty($parsed['title']) && !preg_match('/^upload[_\s]?\d+/i', $parsed['title'])) {
-                                    $title = $parsed['title'];
-                                }
-                                if (!empty($parsed['slides_count'])) {
-                                    $slidesCount = $parsed['slides_count'];
-                                }
+                        $parsed = json_decode($output, true);
+                        if (!empty($parsed) && isset($parsed['summary'])) {
+                            $extractedData = $parsed;
+                            if (!empty($parsed['title'])) {
+                                $title = $parsed['title'];
+                            }
+                            if (!empty($parsed['slides_count'])) {
+                                $slidesCount = $parsed['slides_count'];
                             }
                         }
                     }
@@ -899,17 +893,12 @@ class SmartStudyController extends Controller
             $filename = str_replace(' ', '_', $title) . '.pptx';
         }
 
-        if (empty($title) || preg_match('/^upload[_\s]?\d+/i', $title)) {
-            $title = (!empty($cleanTitle) && !preg_match('/^upload[_\s]?\d+/i', $cleanTitle)) 
-                ? $cleanTitle 
-                : 'Slide Kuliah: ' . date('d M Y');
+        if (empty($title)) {
+            $title = 'Slide Kuliah: ' . date('d M Y');
         }
 
         if ($extractedData) {
             $generatedData = $extractedData;
-            if (isset($savedPath)) {
-                $generatedData['file_path'] = $savedPath;
-            }
         } else {
             // Check if title or filename is specifically about Physics of Malware
             $isMalwareTopic = preg_match('/physics of malware|pe\s*header|shannon entropy|process injection/i', $title . ' ' . $filename);
@@ -1073,34 +1062,16 @@ class SmartStudyController extends Controller
 
         // Check if we can re-generate using Python extractor with refresh
         $script = app_path('Services/extract_and_generate.py');
+        $storedUploads = storage_path('app/private/uploads');
         $fileToUse = null;
 
-        // 1. Check exact stored file path from data
-        if (!empty($data['file_path'])) {
-            $candidates = [
-                storage_path('app/private/' . $data['file_path']),
-                storage_path('app/' . $data['file_path']),
-                base_path($data['file_path'])
-            ];
-            foreach ($candidates as $cand) {
-                if (file_exists($cand)) {
-                    $fileToUse = $cand;
+        if (is_dir($storedUploads)) {
+            $files = scandir($storedUploads);
+            foreach ($files as $f) {
+                if ($f === '.' || $f === '..') continue;
+                if (stripos($f, pathinfo($material->filename, PATHINFO_FILENAME)) !== false) {
+                    $fileToUse = $storedUploads . '/' . $f;
                     break;
-                }
-            }
-        }
-
-        // 2. Scan uploads directory for matching filename
-        if (!$fileToUse) {
-            $storedUploads = storage_path('app/private/uploads');
-            if (is_dir($storedUploads)) {
-                $files = scandir($storedUploads);
-                foreach ($files as $f) {
-                    if ($f === '.' || $f === '..') continue;
-                    if (stripos($f, pathinfo($material->filename, PATHINFO_FILENAME)) !== false) {
-                        $fileToUse = $storedUploads . '/' . $f;
-                        break;
-                    }
                 }
             }
         }
@@ -1116,18 +1087,13 @@ class SmartStudyController extends Controller
             $cmd = 'python ' . escapeshellarg($script) . ' ' . escapeshellarg($fileToUse) . ' --refresh-quiz';
             $output = shell_exec($cmd);
             if ($output) {
-                $startPos = strpos($output, '{');
-                $endPos = strrpos($output, '}');
-                if ($startPos !== false && $endPos !== false && $endPos > $startPos) {
-                    $jsonStr = substr($output, $startPos, $endPos - $startPos + 1);
-                    $parsed = json_decode($jsonStr, true);
-                    if (!empty($parsed['quiz'])) {
-                        $data['quiz'] = $parsed['quiz'];
-                        $material->data = $data;
-                        $material->save();
-                        return redirect()->route('ai-generator', ['id' => $material->id, 'mode' => 'quiz'])
-                            ->with('success', 'Kuis berhasil diperbarui dengan set soal dan variasi baru! 🎲✨');
-                    }
+                $parsed = json_decode($output, true);
+                if (!empty($parsed['quiz'])) {
+                    $data['quiz'] = $parsed['quiz'];
+                    $material->data = $data;
+                    $material->save();
+                    return redirect()->route('ai-generator', ['id' => $material->id, 'mode' => 'quiz'])
+                        ->with('success', 'Kuis berhasil diperbarui dengan set soal dan variasi baru! 🎲✨');
                 }
             }
         }

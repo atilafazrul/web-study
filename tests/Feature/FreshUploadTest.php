@@ -75,4 +75,40 @@ class FreshUploadTest extends TestCase
         $this->assertArrayHasKey('explanation', $q1);
         $this->assertStringNotContainsString('Tony Kusmana', $q1['question']);
     }
+
+    public function test_fresh_arbitrary_new_course_upload_extracts_intelligent_study_pack(): void
+    {
+        $newCoursePdf = 'C:/Users/Atila/Downloads/CE542-System Administration-MidTerm-2627.pdf';
+        $this->assertFileExists($newCoursePdf);
+
+        $uploadedFile = new UploadedFile(
+            $newCoursePdf,
+            'CE542-System-Administration-MidTerm-2627.pdf',
+            'application/pdf',
+            null,
+            true
+        );
+
+        $response = $this->post('/ai-generator', [
+            'mode' => 'quiz',
+            'presentation_file' => $uploadedFile
+        ]);
+
+        $response->assertStatus(302);
+
+        $material = \App\Models\StudyMaterial::latest('id')->first();
+        $this->assertNotNull($material);
+        $this->assertStringNotContainsString('upload_', $material->title);
+        $this->assertStringNotContainsString('STUDY PROGRAM OF', $material->title);
+        $this->assertStringContainsStringIgnoringCase('System Administration', $material->title);
+        $this->assertArrayHasKey('quiz', $material->data);
+        $this->assertGreaterThanOrEqual(3, count($material->data['quiz']));
+
+        // Ensure questions never ask about admin noise
+        foreach ($material->data['quiz'] as $q) {
+            $this->assertStringNotContainsString('Dareen K. Halim', $q['question']);
+            $this->assertStringNotContainsString('STUDY PROGRAM', $q['question']);
+            $this->assertStringNotContainsString('FACULTY OF', $q['question']);
+        }
+    }
 }
