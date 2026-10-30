@@ -28,10 +28,10 @@ class DatabaseSeeder extends Seeder
                     'Design the class structure',
                     'Implement the core functions',
                     'Test and debug the code',
-                    'Prepare for submission'
+                    'Prepare for submission',
                 ],
                 'assigned_day' => 'Thu',
-                'assigned_time' => '7 PM'
+                'assigned_time' => '7 PM',
             ]);
 
             Task::create([
@@ -47,10 +47,10 @@ class DatabaseSeeder extends Seeder
                 'subtasks' => [
                     'Review lecture slide chapters 4-6',
                     'Solve 10 sample problems',
-                    'Summarize cheat sheet formula guide'
+                    'Summarize cheat sheet formula guide',
                 ],
                 'assigned_day' => 'Thu',
-                'assigned_time' => '8 PM'
+                'assigned_time' => '8 PM',
             ]);
 
             Task::create([
@@ -66,10 +66,10 @@ class DatabaseSeeder extends Seeder
                 'subtasks' => [
                     'Gather recent IEEE papers',
                     'Draft threat analysis section',
-                    'Compile mitigation best practices'
+                    'Compile mitigation best practices',
                 ],
                 'assigned_day' => 'Fri',
-                'assigned_time' => '7 PM'
+                'assigned_time' => '7 PM',
             ]);
 
             Task::create([
@@ -85,10 +85,10 @@ class DatabaseSeeder extends Seeder
                 'subtasks' => [
                     'Structure slide outline',
                     'Add Figma prototype screenshots',
-                    'Rehearse speech timing (5 mins)'
+                    'Rehearse speech timing (5 mins)',
                 ],
                 'assigned_day' => 'Sat',
-                'assigned_time' => '7 PM'
+                'assigned_time' => '7 PM',
             ]);
 
             Task::create([
@@ -103,10 +103,10 @@ class DatabaseSeeder extends Seeder
                 'status' => 'completed',
                 'subtasks' => [
                     'Read Chapter 5 pages 120-145',
-                    'Answer review questions at the end'
+                    'Answer review questions at the end',
                 ],
                 'assigned_day' => 'Mon',
-                'assigned_time' => '7 PM'
+                'assigned_time' => '7 PM',
             ]);
         }
     }

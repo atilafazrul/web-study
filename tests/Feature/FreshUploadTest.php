@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\StudyMaterial;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
@@ -25,17 +26,17 @@ class FreshUploadTest extends TestCase
 
         $response = $this->post('/ai-generator', [
             'mode' => 'summary',
-            'presentation_file' => $uploadedFile
+            'presentation_file' => $uploadedFile,
         ]);
 
         $response->assertStatus(302);
 
-        $material = \App\Models\StudyMaterial::latest('id')->first();
+        $material = StudyMaterial::latest('id')->first();
         $this->assertNotNull($material);
         $this->assertEquals('summary', $material->mode);
         $this->assertStringContainsString('The Physics of Malware', $material->title);
         $this->assertGreaterThanOrEqual(20, $material->slides_count);
         $this->assertArrayHasKey('summary', $material->data);
-        $this->assertStringContainsString('Shannon Entropy', $material->data['summary']['executive_summary'] . implode(' ', $material->data['summary']['key_takeaways']));
+        $this->assertStringContainsString('Shannon Entropy', $material->data['summary']['executive_summary'].implode(' ', $material->data['summary']['key_takeaways']));
     }
 }

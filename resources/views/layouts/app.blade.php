@@ -88,7 +88,7 @@
                 addTaskModal: false, 
                 quickTaskTitle: 'OOP Java Assignment - Build Class Structures',
                 quickTimeNeeded: '3 Hours',
-                quickDeadline: '2026-10-29',
+                quickDeadline: '{{ now()->format("Y-m-d") }}',
                 quickCategory: 'Programming',
                 quickPriority: 'High',
                 toastMessage: '{{ session('success') ?? '' }}',

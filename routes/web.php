@@ -1,7 +1,7 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\SmartStudyController;
+use Illuminate\Support\Facades\Route;
 
 Route::get('/', [SmartStudyController::class, 'dashboard'])->name('dashboard');
 Route::get('/tasks', [SmartStudyController::class, 'tasks'])->name('tasks');
