@@ -8,15 +8,38 @@
     selectedDateRange: 'Oct 27 - Nov 2, 2026',
     dateDropdownOpen: false,
     isRegenerating: false,
-    selectedDay: 'Thu',
+    selectedDay: '{{ date('D') }}',
     dayPlans: {{ json_encode($dayPlans) }},
     selectedPlan: {{ json_encode($todayPlan) }},
     calendarTasks: {{ json_encode($calendarTaskEvents ?? []) }},
-    currentYear: 2026,
-    currentMonth: 9, // 0-indexed: 9 = October
-    selectedDateKey: '2026-10-29',
+    currentYear: (new Date()).getFullYear(),
+    currentMonth: (new Date()).getMonth(), // 0-indexed: 9 = October
+    todayKey: (() => {
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    })(),
+    selectedDateKey: (() => {
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    })(),
     monthNames: ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'],
     dayNamesShort: ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'],
+
+    init() {
+        this.selectDateKey(this.todayKey);
+    },
+
+    getTodayLabel() {
+        const d = new Date();
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+        return `Hari Ini (${d.getDate()} ${months[d.getMonth()]})`;
+    },
 
     prevMonth() {
         if (this.currentMonth === 0) {
@@ -39,9 +62,15 @@
     },
 
     goToToday() {
-        this.currentYear = 2026;
-        this.currentMonth = 9;
-        this.selectDateKey('2026-10-29');
+        const now = new Date();
+        this.currentYear = now.getFullYear();
+        this.currentMonth = now.getMonth();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const key = `${y}-${m}-${day}`;
+        this.todayKey = key;
+        this.selectDateKey(key);
     },
 
     getTasksForDate(dateKey) {
@@ -70,7 +99,7 @@
                 dayNumber: d,
                 dateKey: dateKey,
                 isCurrentMonth: false,
-                isToday: dateKey === '2026-10-29',
+                isToday: dateKey === this.todayKey,
                 tasks: this.getTasksForDate(dateKey)
             });
         }
@@ -83,7 +112,7 @@
                 dayNumber: d,
                 dateKey: dateKey,
                 isCurrentMonth: true,
-                isToday: dateKey === '2026-10-29',
+                isToday: dateKey === this.todayKey,
                 tasks: this.getTasksForDate(dateKey)
             });
         }
@@ -99,7 +128,7 @@
                 dayNumber: d,
                 dateKey: dateKey,
                 isCurrentMonth: false,
-                isToday: dateKey === '2026-10-29',
+                isToday: dateKey === this.todayKey,
                 tasks: this.getTasksForDate(dateKey)
             });
         }
@@ -323,7 +352,7 @@
                         <button type="button" @click="goToToday()" 
                                 class="px-3 py-1.5 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 text-xs font-black transition cursor-pointer flex items-center gap-1.5">
                             <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                            <span>Hari Ini (29 Okt)</span>
+                            <span x-text="getTodayLabel()"></span>
                         </button>
                         <button type="button" @click="openAddTaskOnDate(selectedDateKey)" 
                                 class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white text-xs font-black shadow-glow transition cursor-pointer flex items-center gap-1.5">

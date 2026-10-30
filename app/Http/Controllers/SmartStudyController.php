@@ -309,7 +309,7 @@ class SmartStudyController extends Controller
         }
 
         // Accurate Calendar & Date Processing
-        $rawDueDate = $validated['due_date'] ?? '2026-10-29';
+        $rawDueDate = $validated['due_date'] ?? date('Y-m-d');
         $formattedDueDate = $rawDueDate;
         $assignedDay = null;
 
@@ -495,7 +495,8 @@ class SmartStudyController extends Controller
             }
         }
 
-        $todayPlan = $dayPlans['Thu'] ?? $dayPlans['Mon'];
+        $todayDay = date('D');
+        $todayPlan = $dayPlans[$todayDay] ?? ($dayPlans['Fri'] ?? ($dayPlans['Thu'] ?? $dayPlans['Mon']));
 
         // Build Calendar Events Array for interactive month calendar
         $calendarTaskEvents = [];
@@ -510,7 +511,7 @@ class SmartStudyController extends Controller
                 $cDate = \Carbon\Carbon::parse($cleanDateStr);
                 $dateKey = $cDate->format('Y-m-d');
             } catch (\Exception $e) {
-                $dateKey = '2026-10-29';
+                $dateKey = date('Y-m-d');
             }
 
             $cat = $task->category ?: 'Programming';
@@ -1175,6 +1176,13 @@ class SmartStudyController extends Controller
         }
         $tasksContext = implode("\n", $tasksList);
 
+        $nowDate = \Carbon\Carbon::now();
+        $dayNamesIndo = ['Sunday' => 'Minggu', 'Monday' => 'Senin', 'Tuesday' => 'Selasa', 'Wednesday' => 'Rabu', 'Thursday' => 'Kamis', 'Friday' => 'Jumat', 'Saturday' => 'Sabtu'];
+        $monthNamesIndo = [1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April', 5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus', 9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'];
+        $dayIndo = $dayNamesIndo[$nowDate->format('l')] ?? 'Hari Ini';
+        $monthIndo = $monthNamesIndo[(int)$nowDate->format('n')] ?? 'Bulan Ini';
+        $todayFormatted = $dayIndo . ', ' . $nowDate->format('j') . ' ' . $monthIndo . ' ' . $nowDate->format('Y');
+
         $systemInstruction = "Kamu adalah SmartStudy AI — Asisten AI Pintar & Tutor Kuliah Serba Bisa (seperti ChatGPT dan Gemini) berbahasa Indonesia.
 Kamu bebas menjawab pertanyaan apa saja dari mahasiswa, baik akademik, pemrograman/coding, matematika, sains, essay, maupun tanya jawab umum:
 
@@ -1191,7 +1199,7 @@ Kamu bebas menjawab pertanyaan apa saja dari mahasiswa, baik akademik, pemrogram
    - Ingat konteks percakapan sebelumnya (multi-turn conversation).
 
 4. JADWAL & DEADLINE (DATABASE REAL-TIME):
-   Tanggal hari ini: Kamis, 29 Oktober 2026.
+   Tanggal hari ini: {$todayFormatted}.
    Jika mahasiswa bertanya tentang jadwal kuliah/tugas/deadline, gunakan data berikut:
 {$tasksContext}
 
@@ -1421,14 +1429,23 @@ PANDUAN RESPONS:
 
         // Check for today's schedule / tasks
         if (str_contains($m, 'hari ini') || str_contains($m, 'jadwal') || str_contains($m, 'today')) {
-            $todayTasks = $tasks->filter(function ($t) {
-                return (str_contains($t->due_date, 'Oct 29') || $t->assigned_day === 'Thu');
+            $nowC = \Carbon\Carbon::now();
+            $dIndoList = ['Sunday' => 'Minggu', 'Monday' => 'Senin', 'Tuesday' => 'Selasa', 'Wednesday' => 'Rabu', 'Thursday' => 'Kamis', 'Friday' => 'Jumat', 'Saturday' => 'Sabtu'];
+            $mIndoList = [1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April', 5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus', 9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'];
+            $hariIniStr = ($dIndoList[$nowC->format('l')] ?? 'Hari ini') . ', ' . $nowC->format('j') . ' ' . ($mIndoList[(int)$nowC->format('n')] ?? '') . ' ' . $nowC->format('Y');
+
+            $todayDateKey = $nowC->format('Y-m-d');
+            $todayShort = $nowC->format('M j');
+            $todayDayName = $nowC->format('D');
+
+            $todayTasks = $tasks->filter(function ($t) use ($todayDateKey, $todayShort, $todayDayName) {
+                return (str_contains($t->due_date, $todayShort) || $t->assigned_day === $todayDayName || str_contains($t->due_date, $todayDateKey));
             });
 
             $completedToday = $todayTasks->where('status', 'completed');
             $pendingToday = $todayTasks->where('status', 'pending');
 
-            $out = "Halo! 👋 Berikut adalah ringkasan **jadwal & tugas hari ini (Kamis, 29 Oktober 2026)** berdasarkan databasemu:\n\n";
+            $out = "Halo! 👋 Berikut adalah ringkasan **jadwal & tugas hari ini ({$hariIniStr})** berdasarkan databasemu:\n\n";
 
             if ($pendingToday->count() > 0) {
                 $out .= "⏳ **Tugas yang Perlu Diselesaikan Hari Ini:**\n";
